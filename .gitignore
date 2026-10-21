@@ -1,0 +1,15 @@
+.env
+*.env
+backend/.env
+
+venv/
+backend/venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+backend/.business_profile.json
+.business_profile.json
+
+.DS_Store
+Thumbs.db
+WARREN_SPECIFICATION.md

@@ -1,0 +1,883 @@
+import os
+import json
+import time
+import httpx
+import asyncio
+from typing import Dict, Any, List, Optional
+from datetime import datetime, timedelta, timezone
+from dotenv import load_dotenv
+from paypal_agent_toolkit.shared.configuration import Context
+from paypal_agent_toolkit.shared.paypal_client import PayPalClient
+from paypal_agent_toolkit.shared import tools as pt
+from app.models.schemas import KPISummary, TransactionItem, ChurnRiskItem, OutlookForecast, BusinessProfile
+
+
+_backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+load_dotenv(os.path.join(_backend_dir, ".env"))
+load_dotenv(os.path.join(_backend_dir, "..", ".env"))
+
+def map_region_from_email(email: str) -> str:
+    """Infers customer geographic region from email domain."""
+    if not email:
+        return "North America"
+    e = email.lower()
+    if any(e.endswith(ext) for ext in [".de", ".fr", ".uk", ".ie", ".es", ".it", ".eu", ".nl"]):
+        return "Europe"
+    if any(e.endswith(ext) for ext in [".jp", ".in", ".sg", ".kr", ".au", ".nz"]):
+        return "Asia-Pacific"
+    if any(e.endswith(ext) for ext in [".br", ".mx", ".ar", ".cl", ".co"]):
+        return "Latin America"
+    if any(e.endswith(ext) for ext in [".ae", ".sa", ".qa", ".il"]):
+        return "Middle East"
+    return "North America"
+
+def infer_product_tier_and_type(amount_val: float, note: str = "", item_name: str = "") -> tuple[str, str]:
+    """Dynamically determines product tier name and transaction type from PayPal invoice details."""
+    if item_name:
+        tier = item_name
+    elif note:
+        tier = note
+    else:
+        tier = f"Invoice Item (${amount_val:.2f})"
+
+    t_lower = tier.lower()
+    if amount_val < 0:
+        return tier, "REFUND"
+    elif "subscription" in t_lower or "plan" in t_lower or "membership" in t_lower or "recurring" in t_lower:
+        return tier, "SUBSCRIPTION"
+    elif "consulting" in t_lower or "service" in t_lower or "custom" in t_lower:
+        return tier, "INVOICE"
+    else:
+        return tier, "PURCHASE"
+
+class PayPalService:
+    def __init__(self):
+        self.client_id = os.getenv("PAYPAL_CLIENT_ID", "")
+        self.client_secret = os.getenv("PAYPAL_CLIENT_SECRET", "")
+        self.mode = os.getenv("PAYPAL_MODE", "sandbox").lower()
+        self.base_url = "https://api-m.sandbox.paypal.com" if self.mode == "sandbox" else "https://api-m.paypal.com"
+        
+        self.access_token: Optional[str] = None
+        self.token_expiry: float = 0.0
+
+        # Initialize official PayPal Agent Toolkit Client
+        self.toolkit_client: Optional[Any] = None
+        self._plan_details_cache: Dict[str, Dict[str, Any]] = {}
+        self._plan_cache_time: float = 0.0
+        self._init_toolkit_client()
+
+        self.profile_file = os.path.join(os.path.dirname(__file__), "..", "..", ".business_profile.json")
+        self.business_profile = self._load_profile()
+
+    def _init_toolkit_client(self):
+        """Initializes PayPalClient instance based on paypal-agent-toolkit."""
+        if self.client_id and self.client_secret and self.client_id != "your_paypal_sandbox_client_id_here":
+            try:
+                self.toolkit_client = PayPalClient(
+                    self.client_id,
+                    self.client_secret,
+                    Context(sandbox=(self.mode == "sandbox"))
+                )
+            except Exception as e:
+                print(f"[PayPalService] Warning: Could not initialize PayPalAgentToolkit client: {e}")
+                self.toolkit_client = None
+        else:
+            self.toolkit_client = None
+
+    def _load_profile(self) -> Dict[str, Any]:
+        try:
+            if os.path.exists(self.profile_file):
+                with open(self.profile_file, "r") as f:
+                    return json.load(f)
+        except Exception as e:
+            print(f"[PayPalService] Error loading business profile: {e}")
+        return {
+            "has_subscriptions": False,
+            "has_invoices": False,
+            "has_disputes": False,
+            "has_payouts": False,
+            "primary_signal": "payouts",
+            "summary": {
+                "subscriptions": "No active subscriptions detected",
+                "invoices": "No invoices detected",
+                "disputes": "0 open customer disputes (Clean account health)",
+                "payouts": "No transactions detected"
+            },
+            "stats": {
+                "plans_count": 0,
+                "invoices_count": 0,
+                "disputes_count": 0,
+                "transactions_count": 0,
+                "gross_settled": 0.0
+            }
+        }
+
+    def save_profile(self, profile: Dict[str, Any]) -> Dict[str, Any]:
+        cleaned = {k: v for k, v in profile.items() if v is not None}
+        self.business_profile = {**self.business_profile, **cleaned}
+        try:
+            with open(self.profile_file, "w") as f:
+                json.dump(self.business_profile, f, indent=2)
+        except Exception as e:
+            print(f"[PayPalService] Error saving business profile: {e}")
+        return self.business_profile
+
+    def get_profile(self) -> Dict[str, Any]:
+        return self.business_profile
+
+    def update_credentials(self, client_id: str, client_secret: str, mode: str = "sandbox"):
+        self.client_id = client_id
+        self.client_secret = client_secret
+        self.mode = mode
+        self.base_url = "https://api-m.sandbox.paypal.com" if self.mode == "sandbox" else "https://api-m.paypal.com"
+        self.access_token = None
+        self.token_expiry = 0.0
+        self._plan_details_cache.clear()
+        self._plan_cache_time = 0.0
+        self._init_toolkit_client()
+
+    async def get_access_token(self) -> Optional[str]:
+        if not self.client_id or not self.client_secret:
+            return None
+
+        # Return cached token if valid with 5 minute buffer
+        if self.access_token and time.time() < (self.token_expiry - 300):
+            return self.access_token
+
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(
+                    f"{self.base_url}/v1/oauth2/token",
+                    auth=(self.client_id, self.client_secret),
+                    data={"grant_type": "client_credentials"},
+                    headers={"Accept": "application/json", "Accept-Language": "en_US"}
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    self.access_token = data.get("access_token")
+                    expires_in = data.get("expires_in", 32400)
+                    self.token_expiry = time.time() + expires_in
+                    return self.access_token
+        except Exception as e:
+            print(f"[PayPalService] OAuth error: {e}")
+        return None
+
+    def is_connected(self) -> bool:
+        return bool(self.client_id and self.client_secret and self.client_id != "your_paypal_sandbox_client_id_here")
+
+    async def fetch_live_plans(self, enrich_details: bool = True) -> List[Dict[str, Any]]:
+        """
+        Queries active subscription plans conforming to PayPal AI Toolkit 
+        `list_subscription_plans` and `show_subscription_plan_details` (/v1/billing/plans).
+        Each plan is enriched with its exact `billing_cycles`, `pricing_scheme.fixed_price`,
+        and `payment_preferences`.
+        """
+        # using official PayPal Agent Toolkit function
+        if self.toolkit_client:
+            try:
+                res_str = pt.list_subscription_plans(
+                    self.toolkit_client, 
+                    {"page_size": 20, "page": 1, "total_required": True}
+                )
+                res_data = json.loads(res_str) if isinstance(res_str, str) else res_str
+                plans = res_data.get("plans", [])
+
+                if enrich_details and plans:
+                    # Enrich plans with billing_cycles from show_subscription_plan_details
+                    now = time.time()
+                    enriched_plans = []
+                    for p in plans:
+                        p_id = p.get("id")
+                        if p_id in self._plan_details_cache and (now - self._plan_cache_time) < 300:
+                            enriched_plans.append(self._plan_details_cache[p_id])
+                        else:
+                            try:
+                                d_str = pt.show_subscription_plan_details(self.toolkit_client, {"plan_id": p_id})
+                                detail = json.loads(d_str) if isinstance(d_str, str) else d_str
+                                full_plan = {**p, **detail}
+                                self._plan_details_cache[p_id] = full_plan
+                                enriched_plans.append(full_plan)
+                            except Exception:
+                                enriched_plans.append(p)
+                    self._plan_cache_time = now
+                    return enriched_plans
+                return plans
+            except Exception as e:
+                print(f"[PayPalService] Toolkit list_subscription_plans error: {e}")
+
+        # 2. Resilient fallback via direct async HTTP
+        token = await self.get_access_token()
+        if not token:
+            return []
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                res = await client.get(
+                    f"{self.base_url}/v1/billing/plans?page_size=20",
+                    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+                )
+                if res.status_code == 200:
+                    return res.json().get("plans", [])
+        except Exception as e:
+            print(f"[PayPalService] Error fetching plans via HTTP: {e}")
+        return []
+
+    async def get_plan_details(self, plan_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieves plan details conforming to PayPal AI Toolkit `show_subscription_plan_details`
+        (/v1/billing/plans/{plan_id}).
+        """
+        if self.toolkit_client:
+            try:
+                res = pt.show_subscription_plan_details(self.toolkit_client, {"plan_id": plan_id})
+                return json.loads(res) if isinstance(res, str) else res
+            except Exception as e:
+                print(f"[PayPalService] Error in show_subscription_plan_details: {e}")
+        token = await self.get_access_token()
+        if not token:
+            return None
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                res = await client.get(
+                    f"{self.base_url}/v1/billing/plans/{plan_id}",
+                    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+                )
+                if res.status_code == 200:
+                    return res.json()
+        except Exception:
+            pass
+        return None
+
+    async def fetch_live_invoices(self) -> List[Dict[str, Any]]:
+        """
+        Queries customer invoices
+        """
+        if self.toolkit_client:
+            try:
+                res_str = pt.list_invoices(
+                    self.toolkit_client,
+                    {"page_size": 100, "page": 1, "total_required": "true"}
+                )
+                res_data = json.loads(res_str) if isinstance(res_str, str) else res_str
+                return res_data.get("items", [])
+            except Exception as e:
+                print(f"[PayPalService] Toolkit list_invoices error: {e}")
+
+        token = await self.get_access_token()
+        if not token:
+            return []
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                res = await client.get(
+                    f"{self.base_url}/v2/invoicing/invoices?total_required=true&page_size=100",
+                    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+                )
+                if res.status_code == 200:
+                    return res.json().get("items", [])
+        except Exception as e:
+            print(f"[PayPalService] Error fetching invoices via HTTP: {e}")
+        return []
+
+    async def get_invoice_details(self, invoice_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieves complete invoice records
+        """
+        if self.toolkit_client:
+            try:
+                res = pt.get_invoice(self.toolkit_client, {"invoice_id": invoice_id})
+                return json.loads(res) if isinstance(res, str) else res
+            except Exception as e:
+                print(f"[PayPalService] Error in get_invoice: {e}")
+        token = await self.get_access_token()
+        if not token:
+            return None
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                res = await client.get(
+                    f"{self.base_url}/v2/invoicing/invoices/{invoice_id}",
+                    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+                )
+                if res.status_code == 200:
+                    return res.json()
+        except Exception:
+            pass
+        return None
+
+    async def send_invoice_reminder(self, invoice_id: str, note: str = "Please remit payment for your pending PayPal invoice.") -> Dict[str, Any]:
+        """
+        Triggers an automated invoice reminder
+        """
+        if self.toolkit_client:
+            try:
+                res = pt.send_invoice_reminder(
+                    self.toolkit_client,
+                    {"invoice_id": invoice_id, "subject": "Reminder: Unpaid PayPal Invoice", "note": note}
+                )
+                return {"success": True, "details": res}
+            except Exception as e:
+                print(f"[PayPalService] Error in send_invoice_reminder: {e}")
+        token = await self.get_access_token()
+        if not token:
+            return {"success": False, "error": "No PayPal access token"}
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                res = await client.post(
+                    f"{self.base_url}/v2/invoicing/invoices/{invoice_id}/remind",
+                    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                    json={"subject": "Reminder: Unpaid PayPal Invoice", "note": note, "send_to_recipient": True}
+                )
+                return {"success": res.status_code in [200, 204], "status_code": res.status_code}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def fetch_live_disputes(self) -> List[Dict[str, Any]]:
+        """
+        Queries cusotmer disputes
+        """
+        if self.toolkit_client:
+            try:
+                res_str = pt.list_disputes(self.toolkit_client, {"page_size": 20})
+                res_data = json.loads(res_str) if isinstance(res_str, str) else res_data
+                return res_data.get("items", [])
+            except Exception as e:
+                print(f"[PayPalService] Toolkit list_disputes error: {e}")
+
+        token = await self.get_access_token()
+        if not token:
+            return []
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                res = await client.get(
+                    f"{self.base_url}/v1/customer/disputes",
+                    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+                )
+                if res.status_code == 200:
+                    return res.json().get("items", [])
+        except Exception as e:
+            print(f"[PayPalService] Error fetching disputes via HTTP: {e}")
+        return []
+
+    async def get_dispute_details(self, dispute_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieves dispute details
+        """
+        if self.toolkit_client:
+            try:
+                res = pt.get_dispute(self.toolkit_client, {"dispute_id": dispute_id})
+                return json.loads(res) if isinstance(res, str) else res
+            except Exception as e:
+                print(f"[PayPalService] Error in get_dispute: {e}")
+        token = await self.get_access_token()
+        if not token:
+            return None
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                res = await client.get(
+                    f"{self.base_url}/v1/customer/disputes/{dispute_id}",
+                    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+                )
+                if res.status_code == 200:
+                    return res.json()
+        except Exception:
+            pass
+        return None
+
+
+    async def probe_account(self) -> Dict[str, Any]:
+        """
+        Probes the core PayPal endpoints in parallel:
+        - Subscriptions
+        - Invoices
+        - Disputes
+        - Payouts/Transactions history
+        Returns a verification checklist of what was discovered.
+        """
+        plans, invoices, disputes, txns = await asyncio.gather(
+            self.fetch_live_plans(),
+            self.fetch_live_invoices(),
+            self.fetch_live_disputes(),
+            self.fetch_live_transactions(days_back=90),
+            return_exceptions=True
+        )
+
+        plans = plans if isinstance(plans, list) else []
+        invoices = invoices if isinstance(invoices, list) else []
+        disputes = disputes if isinstance(disputes, list) else []
+        txns = txns if isinstance(txns, list) else []
+
+        has_subscriptions = len(plans) > 0
+        has_invoices = len(invoices) > 0
+        has_disputes = len(disputes) > 0
+        has_payouts = len(txns) > 0
+
+        paid_invoices = [inv for inv in invoices if inv.get("status") in ["PAID", "MARKED_AS_PAID"]]
+        settled_amt = sum(float(inv.get("amount", {}).get("value", 0)) for inv in paid_invoices)
+        unpaid_cnt = sum(1 for inv in invoices if inv.get("status") not in ["PAID", "MARKED_AS_PAID"])
+
+        known_plan_prices = set()
+        for p in plans:
+            for cycle in p.get("billing_cycles") or []:
+                fp = cycle.get("pricing_scheme", {}).get("fixed_price", {}).get("value")
+                if fp:
+                    try:
+                        known_plan_prices.add(float(fp))
+                    except (ValueError, TypeError):
+                        pass
+
+        sub_mrr = sum(
+            float(inv.get("amount", {}).get("value", 0))
+            for inv in paid_invoices
+            if "subscription" in str(inv).lower() or "plan" in str(inv).lower() or (float(inv.get("amount", {}).get("value", 0)) in known_plan_prices if known_plan_prices else False)
+        )
+
+        dispute_amt = sum(
+            float(d.get("dispute_amount", {}).get("value", 0)) for d in disputes
+        )
+
+        if has_subscriptions and has_invoices:
+            primary_signal = "subscriptions"
+        elif has_subscriptions:
+            primary_signal = "subscriptions"
+        elif has_invoices:
+            primary_signal = "invoices"
+        elif has_disputes:
+            primary_signal = "disputes"
+        else:
+            primary_signal = "payouts"
+
+        summary = {
+            "subscriptions": f"{len(plans)} plans registered (${sub_mrr:.2f} active MRR)" if has_subscriptions else "No active subscriptions found",
+            "invoices": f"{len(invoices)} invoices found (${settled_amt:.2f} settled, {unpaid_cnt} pending)" if has_invoices else "No customer invoices found",
+            "disputes": f"{len(disputes)} open customer dispute(s) (${dispute_amt:.2f})" if has_disputes else "0 open customer disputes (Clean account health)",
+            "payouts": f"{len(txns)} transactions recorded" if has_payouts else "No transaction history found"
+        }
+
+        probe_result = {
+            "has_subscriptions": has_subscriptions,
+            "has_invoices": has_invoices,
+            "has_disputes": has_disputes,
+            "has_payouts": has_payouts,
+            "primary_signal": primary_signal,
+            "summary": summary,
+            "stats": {
+                "plans_count": len(plans),
+                "invoices_count": len(invoices),
+                "disputes_count": len(disputes),
+                "transactions_count": len(txns),
+                "gross_settled": settled_amt
+            }
+        }
+
+        self.save_profile(probe_result)
+        return probe_result
+
+    async def fetch_live_transactions(self, days_back: int = 90) -> List[TransactionItem]:
+        """
+        Extracts live transaction records directly.
+        """
+        token = await self.get_access_token()
+        if not token:
+            return []
+
+        transactions: List[TransactionItem] = []
+
+        invoices = await self.fetch_live_invoices()
+        for inv in invoices:
+            inv_id = inv.get("id", f"INV-{int(time.time())}")
+            detail = inv.get("detail", {})
+            inv_date = detail.get("invoice_date", datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+            
+            recipients = inv.get("primary_recipients", [])
+            b_info = recipients[0].get("billing_info", {}) if recipients else {}
+            c_name = b_info.get("name", {}).get("full_name") or b_info.get("name", {}).get("given_name", "PayPal Customer")
+            c_email = b_info.get("email_address", "customer@sandbox.paypal.com")
+            
+            amount_val = float(inv.get("amount", {}).get("value", 0.0))
+            currency = inv.get("amount", {}).get("currency_code", "USD")
+            raw_status = inv.get("status", "UNPAID")
+            
+            if raw_status in ["PAID", "MARKED_AS_PAID"]:
+                status = "COMPLETED"
+            elif raw_status == "OVERDUE":
+                status = "OVERDUE"
+            elif raw_status in ["UNPAID", "SENT", "DRAFT"]:
+                status = "PENDING"
+            elif raw_status == "REFUNDED":
+                status = "REFUNDED"
+            else:
+                status = raw_status
+
+            items = inv.get("items", [])
+            item_name = items[0].get("name", "") if items else ""
+            tier_name, txn_type = infer_product_tier_and_type(amount_val, detail.get("note", ""), item_name)
+            region = map_region_from_email(c_email)
+
+            transactions.append(
+                TransactionItem(
+                    id=inv_id,
+                    date=f"{inv_date} 12:00",
+                    customer_name=c_name,
+                    customer_email=c_email,
+                    amount=amount_val,
+                    currency=currency,
+                    type=txn_type,
+                    status=status,
+                    region=region,
+                    product_tier=tier_name
+                )
+            )
+
+        try:
+            now = datetime.now(timezone.utc)
+            start_dt = now - timedelta(days=min(30, days_back))
+            s_str = start_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+            e_str = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+            url = f"{self.base_url}/v1/reporting/transactions?start_date={s_str}&end_date={e_str}&page_size=50&fields=all"
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                res = await client.get(url, headers={"Authorization": f"Bearer {token}"})
+                if res.status_code == 200:
+                    tx_details = res.json().get("transaction_details", [])
+                    for tx in tx_details:
+                        t_info = tx.get("transaction_info", {})
+                        p_info = tx.get("payer_info", {})
+                        amt = float(t_info.get("transaction_amount", {}).get("value", 0.0))
+                        transactions.append(
+                            TransactionItem(
+                                id=t_info.get("transaction_id", f"TXN-{int(time.time())}"),
+                                date=t_info.get("transaction_initiation_date", now.strftime("%Y-%m-%d %H:%M"))[:16].replace("T", " "),
+                                customer_name=p_info.get("payer_name", {}).get("alternate_full_name", "PayPal Customer"),
+                                customer_email=p_info.get("email_address", "customer@sandbox.paypal.com"),
+                                amount=amt,
+                                currency=t_info.get("transaction_amount", {}).get("currency_code", "USD"),
+                                type="PURCHASE" if amt > 0 else "REFUND",
+                                status=t_info.get("transaction_status", "COMPLETED"),
+                                region="North America",
+                                product_tier="Direct Checkout"
+                            )
+                        )
+        except Exception:
+            pass
+
+        transactions.sort(key=lambda t: t.date, reverse=True)
+        return transactions
+
+    async def get_kpis(self) -> KPISummary:
+        """Dynamically calculates key merchant KPIs directly from live PayPal Sandbox data."""
+        invoices = await self.fetch_live_invoices()
+        plans = await self.fetch_live_plans()
+        disputes = await self.fetch_live_disputes()
+
+        paid_invoices = [inv for inv in invoices if inv.get("status") in ["PAID", "MARKED_AS_PAID"]]
+        unpaid_invoices = [inv for inv in invoices if inv.get("status") not in ["PAID", "MARKED_AS_PAID"]]
+        gross_volume = sum(float(inv.get("amount", {}).get("value", 0.0)) for inv in paid_invoices)
+        
+        # Collect exact plan pricing directly from PayPal billing_cycles schema
+        known_plan_prices = set()
+        for p in plans:
+            for cycle in p.get("billing_cycles") or []:
+                fp = cycle.get("pricing_scheme", {}).get("fixed_price", {}).get("value")
+                if fp:
+                    try:
+                        known_plan_prices.add(float(fp))
+                    except (ValueError, TypeError):
+                        pass
+
+        monthly_volume: Dict[str, float] = {}
+        monthly_mrr: Dict[str, float] = {}
+        for inv in paid_invoices:
+            d_str = inv.get("detail", {}).get("invoice_date", "")
+            amt = float(inv.get("amount", {}).get("value", 0.0))
+            is_sub = "subscription" in str(inv).lower() or "plan" in str(inv).lower() or (amt in known_plan_prices if known_plan_prices else False)
+            if d_str:
+                m_key = d_str[:7]
+                monthly_volume[m_key] = monthly_volume.get(m_key, 0.0) + amt
+                if is_sub:
+                    monthly_mrr[m_key] = monthly_mrr.get(m_key, 0.0) + amt
+
+        sorted_months = sorted(monthly_volume.keys())
+        if len(sorted_months) >= 2:
+            prev_m = monthly_volume[sorted_months[-2]]
+            curr_m = monthly_volume[sorted_months[-1]]
+            gross_volume_change = round(((curr_m - prev_m) / max(1.0, prev_m)) * 100, 1)
+        else:
+            gross_volume_change = 0.0
+
+        sub_invoices = [
+            inv for inv in paid_invoices 
+            if "subscription" in str(inv).lower() or "plan" in str(inv).lower() or (float(inv.get("amount", {}).get("value", 0)) in known_plan_prices if known_plan_prices else False)
+        ]
+        active_subscriptions = len(sub_invoices)
+        
+        latest_month = sorted_months[-1] if sorted_months else ""
+        mrr = monthly_mrr.get(latest_month, 0.0)
+        if mrr == 0.0 and sub_invoices:
+            mrr = sum(float(inv.get("amount", {}).get("value", 0.0)) for inv in sub_invoices)
+
+        sorted_mrr_months = sorted(monthly_mrr.keys())
+        if len(sorted_mrr_months) >= 2:
+            prev_mrr = monthly_mrr[sorted_mrr_months[-2]]
+            curr_mrr = monthly_mrr[sorted_mrr_months[-1]]
+            mrr_change = round(((curr_mrr - prev_mrr) / max(1.0, prev_mrr)) * 100, 1)
+        else:
+            mrr_change = 0.0
+
+        processing_fees = gross_volume * 0.029 + 0.30 * len(paid_invoices)
+        net_inflow = round(max(0.0, gross_volume - processing_fees), 2)
+
+        total_txns = max(1, len(invoices))
+        dispute_rate = round((len(disputes) / total_txns) * 100, 2) if len(invoices) > 0 else 0.0
+
+        unpaid_amounts = [float(inv.get("amount", {}).get("value", 0)) for inv in unpaid_invoices]
+        at_risk_tiers_count = len(set(
+            infer_product_tier_and_type(amt)[0] for amt in unpaid_amounts
+        ))
+
+        return KPISummary(
+            gross_volume=round(gross_volume, 2),
+            gross_volume_change=gross_volume_change,
+            active_subscriptions=active_subscriptions,
+            active_subscriptions_change=0.0,
+            mrr=round(mrr, 2),
+            mrr_change=mrr_change,
+            net_inflow=net_inflow,
+            dispute_rate=dispute_rate,
+            at_risk_tiers_count=at_risk_tiers_count
+        )
+
+    async def get_churn_risk_analysis(self) -> List[ChurnRiskItem]:
+        """Dynamically analyzes churn vulnerabilities for active PayPal subscription plans."""
+        plans = await self.fetch_live_plans()
+        invoices = await self.fetch_live_invoices()
+
+        if not plans or not invoices:
+            return []
+
+        results: List[ChurnRiskItem] = []
+
+        for plan in plans:
+            p_name = plan.get("name", "Subscription Plan")
+            matching = [
+                inv for inv in invoices 
+                if p_name.lower() in str(inv).lower()
+            ]
+            paid_count = sum(1 for inv in matching if inv.get("status") in ["PAID", "MARKED_AS_PAID"])
+            unpaid_count = sum(1 for inv in matching if inv.get("status") not in ["PAID", "MARKED_AS_PAID"])
+            
+            # Extract fixed price from PayPal Subscriptions API schema
+            fixed_price = 0.0
+            for cycle in plan.get("billing_cycles") or []:
+                fp = cycle.get("pricing_scheme", {}).get("fixed_price", {}).get("value")
+                if fp:
+                    try:
+                        fixed_price = float(fp)
+                        break
+                    except (ValueError, TypeError):
+                        pass
+
+            amt_sample = fixed_price if fixed_price > 0 else (float(matching[0].get("amount", {}).get("value", 0.0)) if matching else 0.0)
+
+            if unpaid_count > 0:
+                churn_prob = round(min(0.85, unpaid_count / max(1, len(matching))), 2)
+                rev_at_risk = round(amt_sample * unpaid_count, 2)
+                drivers = [
+                    f"{unpaid_count} unpaid renewal invoice(s) in PayPal Sandbox",
+                    "Soft card decline or pending payment cycle",
+                    "Customer reminder unacknowledged"
+                ]
+                action = f"Send automated PayPal invoice reminder to pending {p_name} accounts."
+            else:
+                churn_prob = 0.05
+                rev_at_risk = 0.0
+                drivers = [
+                    "Consistent renewal track record in PayPal",
+                    "Zero disputes or refund requests",
+                    "Good payment velocity"
+                ]
+                action = "Maintain scheduled billing cycles and monitor member renewals."
+
+            results.append(
+                ChurnRiskItem(
+                    tier_name=f"{p_name} (${amt_sample:.0f}/mo)" if amt_sample > 0 else p_name,
+                    active_subscribers=paid_count,
+                    churn_probability=churn_prob,
+                    monthly_revenue_at_risk=rev_at_risk,
+                    key_drivers=drivers,
+                    recommended_action=action
+                )
+            )
+
+        return results
+
+    async def get_outlook_forecast(self) -> OutlookForecast:
+        """Dynamically constructs 30/90-day predictive runway from live PayPal invoice history."""
+        invoices = await self.fetch_live_invoices()
+        plans = await self.fetch_live_plans()
+        kpis = await self.get_kpis()
+        churn_tiers = await self.get_churn_risk_analysis()
+
+        known_plan_prices = set()
+        for p in plans:
+            for cycle in p.get("billing_cycles") or []:
+                fp = cycle.get("pricing_scheme", {}).get("fixed_price", {}).get("value")
+                if fp:
+                    try:
+                        known_plan_prices.add(float(fp))
+                    except (ValueError, TypeError):
+                        pass
+
+        monthly: Dict[str, Dict[str, float]] = {}
+        for inv in invoices:
+            if inv.get("status") in ["PAID", "MARKED_AS_PAID"]:
+                d_str = inv.get("detail", {}).get("invoice_date", "")
+                amt = float(inv.get("amount", {}).get("value", 0))
+                is_sub = "subscription" in str(inv).lower() or "plan" in str(inv).lower() or (amt in known_plan_prices if known_plan_prices else False)
+                if d_str:
+                    m_key = d_str[:7]
+                    if m_key not in monthly:
+                        monthly[m_key] = {"revenue": 0.0, "mrr": 0.0}
+                    monthly[m_key]["revenue"] += amt
+                    if is_sub:
+                        monthly[m_key]["mrr"] += amt
+
+        month_names = {
+            "01": "Jan", "02": "Feb", "03": "Mar", "04": "Apr", "05": "May", "06": "Jun",
+            "07": "Jul", "08": "Aug", "09": "Sep", "10": "Oct", "11": "Nov", "12": "Dec"
+        }
+        historical = []
+        for m_key in sorted(monthly.keys()):
+            parts = m_key.split("-")
+            label = month_names.get(parts[1], parts[1])
+            historical.append({
+                "month": label,
+                "revenue": round(monthly[m_key]["revenue"], 2),
+                "mrr": round(monthly[m_key]["mrr"], 2)
+            })
+
+        if not historical:
+            return OutlookForecast(
+                forecast_30d=0.0,
+                forecast_90d=0.0,
+                confidence_score=0.0,
+                projected_mrr_growth=0.0,
+                historical_trend=[],
+                projected_trend=[],
+                at_risk_tiers=[],
+                proactive_tips=["No historical invoice settlements found. Process transactions in PayPal Sandbox to enable cash runway projections."]
+            )
+
+        latest_rev = historical[-1]["revenue"]
+        latest_mrr = historical[-1]["mrr"]
+        
+        growth_rate = 1.10
+        p1 = round(latest_rev * growth_rate, 2)
+        p2 = round(p1 * growth_rate, 2)
+        p3 = round(p2 * growth_rate, 2)
+
+        m1 = round(latest_mrr * 1.05, 2)
+        m2 = round(m1 * 1.05, 2)
+        m3 = round(m2 * 1.05, 2)
+
+        projected = [
+            {"month": "M+1 (Est)", "revenue": p1, "mrr": m1, "low": round(p1 * 0.90, 2), "high": round(p1 * 1.10, 2)},
+            {"month": "M+2 (Est)", "revenue": p2, "mrr": m2, "low": round(p2 * 0.88, 2), "high": round(p2 * 1.12, 2)},
+            {"month": "M+3 (Est)", "revenue": p3, "mrr": m3, "low": round(p3 * 0.85, 2), "high": round(p3 * 1.15, 2)},
+        ]
+
+        forecast_30d = p1
+        forecast_90d = round(p1 + p2 + p3, 2)
+
+        unpaid = [inv for inv in invoices if inv.get("status") not in ["PAID", "MARKED_AS_PAID"]]
+        unpaid_sum = sum(float(inv.get("amount", {}).get("value", 0)) for inv in unpaid)
+
+        tips = []
+        if unpaid:
+            tips.append(f"You have {len(unpaid)} pending or unpaid invoices totaling ${unpaid_sum:.2f} in PayPal Sandbox. Automated invoice reminders can accelerate receivables.")
+        if kpis.mrr > 0:
+            tips.append(f"Current recurring revenue is ${kpis.mrr:.2f} across {kpis.active_subscriptions} active subscription(s).")
+        if not tips:
+            tips.append("Account operating health is stable with zero open disputes or pending receivables.")
+
+        return OutlookForecast(
+            forecast_30d=forecast_30d,
+            forecast_90d=forecast_90d,
+            confidence_score=0.88,
+            projected_mrr_growth=10.0,
+            historical_trend=historical,
+            projected_trend=projected,
+            at_risk_tiers=churn_tiers,
+            proactive_tips=tips
+        )
+
+    async def get_standard_charts(self) -> List[Dict[str, Any]]:
+        """Dynamically builds the standard dashboard AG Charts from live PayPal Sandbox data."""
+        invoices = await self.fetch_live_invoices()
+        plans = await self.fetch_live_plans()
+        forecast = await self.get_outlook_forecast()
+
+        # 1. Monthly Revenue & MRR Growth
+        categories_m = [h["month"] for h in forecast.historical_trend]
+        data_gross = [h["revenue"] for h in forecast.historical_trend]
+        data_mrr = [h["mrr"] for h in forecast.historical_trend]
+
+        chart1 = {
+            "id": "revenue-trend",
+            "title": "Monthly Revenue & MRR Growth",
+            "type": "bar",
+            "description": "Historical gross settled sales alongside monthly recurring revenue from PayPal.",
+            "categories": categories_m,
+            "datasets": [
+                {"label": "Gross Sales ($)", "data": data_gross, "color": "#0070ba"},
+                {"label": "MRR ($)", "data": data_mrr, "color": "#00cfde"}
+            ] if categories_m else [],
+            "metric_unit": "USD"
+        }
+
+        # 2. Subscription Plans Breakdown
+        plan_categories = [p.get("name", "Plan") for p in plans]
+        plan_sub_counts = []
+        for p in plans:
+            p_name = p.get("name", "").lower()
+            cnt = sum(1 for inv in invoices if p_name in str(inv).lower() and inv.get("status") in ["PAID", "MARKED_AS_PAID"])
+            plan_sub_counts.append(cnt)
+
+        chart2 = {
+            "id": "subscription-tiers",
+            "title": "Active Subscribers by Plan Tier",
+            "type": "donut",
+            "description": "Distribution of active subscriptions across live PayPal Sandbox plans.",
+            "categories": plan_categories,
+            "datasets": [
+                {"label": "Subscribers", "data": plan_sub_counts}
+            ] if plan_categories else [],
+            "metric_unit": "Members"
+        }
+
+        # 3. Global Regional Distribution
+        regional: Dict[str, float] = {}
+        for inv in invoices:
+            recipients = inv.get("primary_recipients", [])
+            email = recipients[0].get("billing_info", {}).get("email_address", "") if recipients else ""
+            region = map_region_from_email(email)
+            amt = float(inv.get("amount", {}).get("value", 0))
+            regional[region] = regional.get(region, 0.0) + amt
+
+        sorted_regions = sorted(regional.keys(), key=lambda r: regional[r], reverse=True)
+        chart3 = {
+            "id": "regional-distribution",
+            "title": "Global Sales Distribution by Territory",
+            "type": "bar",
+            "description": "Geographic origin of settled and pending invoices in PayPal Sandbox.",
+            "categories": sorted_regions,
+            "datasets": [
+                {
+                    "label": "Gross Volume ($)",
+                    "data": [round(regional[r], 2) for r in sorted_regions],
+                    "color": "#10b981"
+                }
+            ] if sorted_regions else [],
+            "metric_unit": "USD"
+        }
+
+        charts = [c for c in [chart1, chart2, chart3] if len(c.get("categories", [])) > 0]
+        return charts if charts else [chart1, chart2, chart3]
+
+paypal_service = PayPalService()

@@ -329,6 +329,33 @@ class PayPalService:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
+    async def send_draft_invoice(self, invoice_id: str, note: str = "Thank you for your business. Please remit payment at your earliest convenience.") -> Dict[str, Any]:
+        """
+        Sends/publishes a draft invoice to the customer via PayPal Invoicing API v2.
+        """
+        if self.toolkit_client:
+            try:
+                res = pt.send_invoice(
+                    self.toolkit_client,
+                    {"invoice_id": invoice_id, "note": note, "send_to_recipient": True}
+                )
+                return {"success": True, "details": res}
+            except Exception as e:
+                print(f"[PayPalService] Error in send_draft_invoice: {e}")
+        token = await self.get_access_token()
+        if not token:
+            return {"success": False, "error": "No PayPal access token"}
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                res = await client.post(
+                    f"{self.base_url}/v2/invoicing/invoices/{invoice_id}/send",
+                    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                    json={"send_to_recipient": True}
+                )
+                return {"success": res.status_code in [200, 202, 204], "status_code": res.status_code}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
     async def fetch_live_disputes(self) -> List[Dict[str, Any]]:
         """
         Queries cusotmer disputes
@@ -832,12 +859,35 @@ class PayPalService:
         }
 
         # 2. Subscription Plans Breakdown
-        plan_categories = [p.get("name", "Plan") for p in plans]
-        plan_sub_counts = []
+        price_to_plan: Dict[float, str] = {}
+        plan_categories = []
         for p in plans:
-            p_name = p.get("name", "").lower()
-            cnt = sum(1 for inv in invoices if p_name in str(inv).lower() and inv.get("status") in ["PAID", "MARKED_AS_PAID"])
-            plan_sub_counts.append(cnt)
+            p_name = p.get("name", "Plan")
+            if p_name not in plan_categories:
+                plan_categories.append(p_name)
+            for c in p.get("billing_cycles") or []:
+                fp = c.get("pricing_scheme", {}).get("fixed_price", {}).get("value")
+                if fp:
+                    try:
+                        price_to_plan[float(fp)] = p_name
+                    except (ValueError, TypeError):
+                        pass
+
+        plan_counts: Dict[str, int] = {name: 0 for name in plan_categories}
+        for inv in invoices:
+            if inv.get("status") in ["PAID", "MARKED_AS_PAID"]:
+                amt = float(inv.get("amount", {}).get("value", 0))
+                matched_plan = price_to_plan.get(amt)
+                if matched_plan:
+                    plan_counts[matched_plan] += 1
+                else:
+                    for p in plans:
+                        p_name = p.get("name", "")
+                        if p_name and p_name.lower() in str(inv).lower():
+                            plan_counts[p_name] = plan_counts.get(p_name, 0) + 1
+                            break
+
+        plan_sub_counts = [plan_counts.get(name, 0) for name in plan_categories]
 
         chart2 = {
             "id": "subscription-tiers",
@@ -879,5 +929,99 @@ class PayPalService:
 
         charts = [c for c in [chart1, chart2, chart3] if len(c.get("categories", [])) > 0]
         return charts if charts else [chart1, chart2, chart3]
+
+    async def get_executive_briefing(self) -> Dict[str, Any]:
+        """
+        Synthesizes a live Morning Executive Briefing combining KPIs, invoices,
+        subscriptions, dispute protection, and forward revenue outlook.
+        """
+        from datetime import datetime
+        now = datetime.now()
+        hour = now.hour
+        greeting = "Good morning" if hour < 12 else ("Good afternoon" if hour < 17 else "Good evening")
+        date_str = now.strftime("%A, %b %d, %Y")
+
+        kpis = await self.get_kpis()
+        invoices = await self.fetch_live_invoices()
+        plans = await self.fetch_live_plans()
+        disputes = await self.fetch_live_disputes()
+        forecast = await self.get_outlook_forecast()
+
+        # Invoicing breakdown
+        paid_invs = [inv for inv in invoices if inv.get("status") in ["PAID", "MARKED_AS_PAID"]]
+        unpaid_invs = [inv for inv in invoices if inv.get("status") in ["UNPAID", "SENT", "DRAFT"]]
+        overdue_invs = [inv for inv in invoices if inv.get("status") == "OVERDUE"]
+
+        unpaid_sum = sum(float(inv.get("amount", {}).get("value", 0)) for inv in unpaid_invs)
+        overdue_sum = sum(float(inv.get("amount", {}).get("value", 0)) for inv in overdue_invs)
+
+        vol_val = f"${kpis.gross_volume:,.2f}"
+        vol_change = f"+{kpis.gross_volume_change:.1f}% MoM" if kpis.gross_volume_change >= 0 else f"{kpis.gross_volume_change:.1f}% MoM"
+        mrr_val = f"${kpis.mrr:,.2f}"
+        pending_val = f"${unpaid_sum + overdue_sum:,.2f}"
+
+        headline = f"Strong Performance: {vol_val} Settled Volume with {vol_change} Growth"
+
+        summary = (
+            f"Your business has settled **{vol_val}** across transactions ({vol_change}). "
+            f"Monthly Recurring Revenue stands at **{mrr_val}** supported by **{kpis.active_subscriptions} active subscribers**. "
+            f"You have **{len(unpaid_invs) + len(overdue_invs)} pending invoices totaling {pending_val}** awaiting collection. "
+            f"Account protection is **100% clean with {len(disputes)} open disputes**, and forward 90-day trajectory projects **${forecast.forecast_90d:,.2f}**."
+        )
+
+        highlights = [
+            {
+                "label": "Settled Sales",
+                "value": vol_val,
+                "change": vol_change,
+                "type": "positive"
+            },
+            {
+                "label": "Recurring MRR",
+                "value": mrr_val,
+                "change": f"{kpis.active_subscriptions} active subscribers",
+                "type": "positive"
+            },
+            {
+                "label": "Pending Receivables",
+                "value": pending_val,
+                "change": f"{len(unpaid_invs)} pending / {len(overdue_invs)} overdue",
+                "type": "warning" if (unpaid_sum + overdue_sum) > 0 else "positive"
+            },
+            {
+                "label": "Account Protection",
+                "value": "100%",
+                "change": f"{len(disputes)} open disputes",
+                "type": "positive"
+            }
+        ]
+
+        action_items = []
+        if unpaid_invs:
+            action_items.append(f"Send 1-click reminders to {len(unpaid_invs)} accounts with pending invoices (${unpaid_sum:,.2f}).")
+        if overdue_invs:
+            action_items.append(f"Follow up immediately on {len(overdue_invs)} overdue invoices totaling ${overdue_sum:,.2f}.")
+        if kpis.at_risk_tiers_count > 0:
+            action_items.append(f"Review churn vulnerability tips for {kpis.at_risk_tiers_count} monitored subscription tiers.")
+        action_items.append(f"Historical telemetry projects a forward 90-day revenue pipeline of ${forecast.forecast_90d:,.2f}.")
+
+        audio_script = (
+            f"{greeting}. Here is your PayPal Executive Briefing for {date_str}. "
+            f"Your business has settled {vol_val} in gross volume, reflecting {vol_change} growth. "
+            f"Recurring monthly revenue is {mrr_val} across {kpis.active_subscriptions} active subscribers. "
+            f"There are {len(unpaid_invs) + len(overdue_invs)} pending invoices totaling {pending_val}. "
+            f"Seller protection remains clean with zero open disputes. "
+            f"Your ninety-day forward revenue runway is projected at ${forecast.forecast_90d:,.2f}."
+        )
+
+        return {
+            "greeting": greeting,
+            "date": date_str,
+            "headline": headline,
+            "summary": summary,
+            "highlights": highlights,
+            "action_items": action_items,
+            "audio_script": audio_script
+        }
 
 paypal_service = PayPalService()

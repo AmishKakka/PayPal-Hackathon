@@ -1,7 +1,8 @@
-from typing import Any, Dict, AsyncGenerator
+from typing import Any, Dict, AsyncGenerator, Optional
 import os
 import json
 import asyncio
+from pydantic import BaseModel
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sse_starlette.sse import EventSourceResponse
@@ -19,7 +20,8 @@ from app.models.schemas import (
     PayPalCredentials,
     BusinessProfile,
     ChartConfig,
-    GenerateChartRequest
+    GenerateChartRequest,
+    ExecutiveBriefing
 )
 from app.services.paypal_service import paypal_service
 from app.agents.orchestrator import warren_orchestrator
@@ -64,6 +66,10 @@ async def get_outlook():
 @app.get("/api/charts/standard")
 async def get_standard_charts():
     return await paypal_service.get_standard_charts()
+
+@app.get("/api/executive-briefing", response_model=ExecutiveBriefing)
+async def get_executive_briefing():
+    return await paypal_service.get_executive_briefing()
 
 @app.post("/api/charts/generate", response_model=ChartConfig)
 async def generate_custom_chart(req: GenerateChartRequest):
@@ -160,6 +166,23 @@ async def seed_paypal_data():
         return {"success": True, "message": "Successfully seeded real data into PayPal Sandbox!"}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+class InvoiceReminderRequest(BaseModel):
+    note: Optional[str] = "Please remit payment for your pending PayPal invoice."
+
+@app.post("/api/invoices/{invoice_id}/remind")
+async def remind_invoice(invoice_id: str, req: Optional[InvoiceReminderRequest] = None):
+    """Triggers an automated PayPal invoice reminder using PayPal Invoicing API v2."""
+    note = req.note if req and req.note else "Please remit payment for your pending PayPal invoice."
+    result = await paypal_service.send_invoice_reminder(invoice_id, note=note)
+    return result
+
+@app.post("/api/invoices/{invoice_id}/send")
+async def send_invoice_endpoint(invoice_id: str, req: Optional[InvoiceReminderRequest] = None):
+    """Publishes and delivers a draft PayPal invoice to the recipient customer."""
+    note = req.note if req and req.note else "Thank you for your business. Please remit payment at your earliest convenience."
+    result = await paypal_service.send_draft_invoice(invoice_id, note=note)
+    return result
 
 if __name__ == "__main__":
     import uvicorn

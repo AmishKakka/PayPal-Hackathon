@@ -95,4 +95,19 @@ class BusinessProfile(BaseModel):
     primary_signal: str = "subscriptions"
     summary: Optional[Dict[str, str]] = None
     stats: Optional[Dict[str, Any]] = None
+
+class BriefingHighlight(BaseModel):
+    label: str
+    value: str
+    change: str
+    type: str = "positive"  # "positive", "warning", "neutral"
+
+class ExecutiveBriefing(BaseModel):
+    greeting: str
+    date: str
+    headline: str
+    summary: str
+    highlights: List[BriefingHighlight]
+    action_items: List[str]
+    audio_script: str
     

@@ -5,7 +5,8 @@ import { useSearchParams } from "next/navigation";
 import { 
   sendChatMessage, 
   ChatResponse, 
-  ChartConfig 
+  ChartConfig,
+  FollowUpAction 
 } from "@/lib/api";
 import { AGChartWrapper } from "@/components/charts/AGChartWrapper";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
@@ -15,7 +16,11 @@ import {
   Send, 
   Sparkles, 
   RefreshCw, 
-  Layers 
+  Layers,
+  Pin,
+  Check,
+  Zap,
+  ArrowRight
 } from "lucide-react";
 
 interface Message {
@@ -24,6 +29,7 @@ interface Message {
   text: string;
   chart?: ChartConfig;
   kpis?: Record<string, unknown>;
+  followUpSuggestions?: FollowUpAction[];
   agentTrace?: string[];
   timestamp: string;
 }
@@ -34,6 +40,8 @@ function ChatContent() {
 
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const inFlightRef = useRef(false);
+  const processedQueryRef = useRef<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "welcome-msg",
@@ -49,29 +57,73 @@ function ChatContent() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
+  const [pinnedIds, setPinnedIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    try {
+      const savedStr = localStorage.getItem("uno_custom_charts") || sessionStorage.getItem("uno_custom_charts");
+      if (savedStr) {
+        const saved: ChartConfig[] = JSON.parse(savedStr);
+        if (Array.isArray(saved)) {
+          setPinnedIds(saved.map(c => c.id));
+        }
+      }
+    } catch {}
+  }, []);
+
+  const handlePinChart = (chart: ChartConfig) => {
+    try {
+      const savedStr = localStorage.getItem("uno_custom_charts") || sessionStorage.getItem("uno_custom_charts");
+      const saved: ChartConfig[] = savedStr ? JSON.parse(savedStr) : [];
+      
+      const chartId = chart.id || `custom-pinned-${Date.now()}`;
+      const uniqueId = chartId.startsWith("pinned-") ? chartId : `pinned-${chartId}`;
+      
+      const chartToSave: ChartConfig = {
+        ...chart,
+        id: uniqueId,
+        title: chart.title || "Custom AI Synthesized Chart"
+      };
+
+      const exists = saved.some(c => c.id === uniqueId || c.id === chart.id || (c.title === chartToSave.title && c.type === chartToSave.type));
+      if (!exists) {
+        saved.push(chartToSave);
+        localStorage.setItem("uno_custom_charts", JSON.stringify(saved));
+        sessionStorage.setItem("uno_custom_charts", JSON.stringify(saved));
+        window.dispatchEvent(new Event("uno_charts_updated"));
+      }
+      setPinnedIds(prev => [...prev, chart.id, uniqueId]);
+    } catch (e) {
+      console.error("Failed to pin chart:", e);
+    }
+  };
+
   const handleSend = async (textToSend?: string) => {
-    const query = textToSend || input;
-    if (!query.trim() || loading) return;
+    const query = (textToSend !== undefined ? textToSend : input).trim();
+    if (!query || loading || inFlightRef.current) return;
+
+    inFlightRef.current = true;
+    setLoading(true);
+    setInput("");
 
     const userMessage: Message = {
-      id: `user-${Date.now()}`,
+      id: `user-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       sender: "user",
       text: query,
       timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
     };
 
     setMessages((prev) => [...prev, userMessage]);
-    setInput("");
-    setLoading(true);
 
     try {
       const response: ChatResponse = await sendChatMessage(query);
       const assistantMessage: Message = {
-        id: `assistant-${Date.now()}`,
+        id: `assistant-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         sender: "assistant",
         text: response.answer,
         chart: response.chart,
         kpis: response.kpis,
+        followUpSuggestions: response.follow_up_suggestions,
         agentTrace: response.agent_trace,
         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
       };
@@ -86,6 +138,7 @@ function ChatContent() {
       };
       setMessages((prev) => [...prev, errorMessage]);
     } finally {
+      inFlightRef.current = false;
       setLoading(false);
     }
   };
@@ -95,7 +148,11 @@ function ChatContent() {
   }, [messages, loading]);
 
   useEffect(() => {
-    if (initialQuery) {
+    if (initialQuery && processedQueryRef.current !== initialQuery) {
+      processedQueryRef.current = initialQuery;
+      if (typeof window !== "undefined") {
+        window.history.replaceState({}, "", "/chat");
+      }
       handleSend(initialQuery);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -131,14 +188,22 @@ function ChatContent() {
                 <div className="flex items-center gap-1.5 flex-wrap mb-3 pb-2.5 border-b border-[#E2E8F0]">
                   <Layers className="h-3 w-3 text-[#008CFF]" />
                   <span className="text-[10px] text-[#4A5568] font-semibold uppercase tracking-wider">Router:</span>
-                  {msg.agentTrace.map((trace, idx) => (
-                    <span 
-                      key={idx}
-                      className="rounded-full bg-[#F5F7FA] px-2.5 py-0.5 text-[10px] text-[#002991] border border-[#E2E8F0] font-medium"
-                    >
-                      {trace}
-                    </span>
-                  ))}
+                  {msg.agentTrace.map((trace, idx) => {
+                    const isAction = trace.includes("Action Executed") || trace.startsWith("⚡");
+                    return (
+                      <span 
+                        key={idx}
+                        className={`rounded-full px-2.5 py-0.5 text-[10px] font-medium border flex items-center gap-1 ${
+                          isAction 
+                            ? "bg-emerald-50 text-emerald-800 border-emerald-300 font-semibold shadow-2xs" 
+                            : "bg-[#F5F7FA] text-[#002991] border-[#E2E8F0]"
+                        }`}
+                      >
+                        {isAction && <Zap className="w-2.5 h-2.5 text-emerald-600 fill-emerald-600 shrink-0" />}
+                        <span>{trace}</span>
+                      </span>
+                    );
+                  })}
                 </div>
               )}
 
@@ -148,19 +213,67 @@ function ChatContent() {
               {/* Inline Embedded AG Chart (Scrollable Area to prevent cutoff) */}
               {msg.chart && (
                 <div className="mt-4 pt-4 border-t border-[#E2E8F0]">
-                  <div className="flex items-center justify-between mb-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                     <span className="text-xs font-semibold text-[#000000] flex items-center gap-1.5">
                       <Sparkles className="h-3.5 w-3.5 text-[#008CFF]" />
                       Synthesized Chart
                     </span>
-                    <span className="text-[10px] text-[#4A5568]">
-                      Live PayPal Sandbox data
-                    </span>
-                  </div>
-                  <div className="w-full overflow-x-auto overflow-y-auto max-h-[460px] rounded-xl border border-[#E2E8F0] bg-[#F5F7FA]/40 p-2 scrollbar-thin">
-                    <div className="min-w-[480px]">
-                      <AGChartWrapper config={msg.chart} height={360} />
+                    <div className="flex items-center gap-2">
+                      {pinnedIds.includes(msg.chart.id) || pinnedIds.includes(`pinned-${msg.chart.id}`) ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 text-[11px] font-semibold border border-emerald-200">
+                          <Check className="w-3 h-3 text-emerald-600" />
+                          <span>Pinned to Quick View</span>
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handlePinChart(msg.chart!)}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white hover:bg-[#F5F7FA] text-[#002991] hover:text-[#008CFF] border border-[#E2E8F0] hover:border-[#008CFF]/40 text-[11px] font-semibold transition-all shadow-xs cursor-pointer"
+                          title="Pin this chart to your Quick View dashboard"
+                        >
+                          <Pin className="w-3 h-3 text-[#008CFF]" />
+                          <span>Pin to Quick View</span>
+                        </button>
+                      )}
+                      <span className="text-[10px] text-[#4A5568]">
+                        Live PayPal Sandbox
+                      </span>
                     </div>
+                  </div>
+                  <div className="w-full overflow-x-auto overflow-y-auto max-h-[460px] rounded-xl border border-[#E2E8F0] bg-[#F5F7FA]/40 p-4 scrollbar-thin">
+                    <div className="mb-2">
+                      <h4 className="text-sm font-semibold text-[#000000]">{msg.chart.title}</h4>
+                      {msg.chart.description && (
+                        <p className="text-xs text-[#4A5568] mt-0.5">{msg.chart.description}</p>
+                      )}
+                    </div>
+                    <div className="min-w-[480px]">
+                      <AGChartWrapper config={msg.chart} height={340} />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 1-Click Agentic Actions & Follow-up Suggestions */}
+              {msg.followUpSuggestions && msg.followUpSuggestions.length > 0 && (
+                <div className="mt-4 pt-3.5 border-t border-[#E2E8F0]">
+                  <div className="text-[11px] font-semibold text-[#4A5568] uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
+                    <Zap className="h-3.5 w-3.5 text-amber-500 fill-amber-500" />
+                    <span>Suggested Agent Actions</span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {msg.followUpSuggestions.map((action, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        disabled={loading}
+                        onClick={() => handleSend(action.payload)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#F8FAFC] hover:bg-[#E5F3FF] border border-[#CBD5E1] hover:border-[#008CFF] text-xs font-medium text-[#002991] transition-all shadow-2xs hover:shadow-xs cursor-pointer group disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <ArrowRight className="h-3 w-3 text-[#008CFF] group-hover:translate-x-0.5 transition-transform shrink-0" />
+                        <span>{action.label}</span>
+                      </button>
+                    ))}
                   </div>
                 </div>
               )}

@@ -11,6 +11,20 @@ export default function HomePage() {
         <p className="text-base md:text-lg text-[#4A5568] max-w-md mt-3 tracking-normal font-normal">
           Understand and improve your business
         </p>
+
+        <Link 
+          href="/basic-charts"
+          className="mt-6 inline-flex items-center gap-2.5 px-5 py-2.5 rounded-full bg-white border border-[#CBD5E1] shadow-xs hover:border-[#008CFF] hover:shadow-md transition-all group cursor-pointer"
+        >
+          <span className="flex h-2 w-2 rounded-full bg-[#10b981] animate-ping" />
+          <span className="text-xs font-semibold text-[#002991] group-hover:text-[#008CFF] transition-colors">
+            Morning Executive Briefing Ready
+          </span>
+          <span className="text-xs text-[#CBD5E1]">&bull;</span>
+          <span className="text-xs text-[#4A5568]">
+            View today&apos;s business pulse &rarr;
+          </span>
+        </Link>
       </section>
 
       {/* 3 clickable cards */}

@@ -33,38 +33,32 @@ export function AGChartWrapper({ config, height = 300 }: AGChartWrapperProps) {
         value: config.datasets[0]?.data[idx] ?? 0,
       }));
 
+      const isDonut = config.type === "donut";
+
       return {
         theme: "ag-default",
         background: { fill: "transparent" },
-        title: {
-          text: config.title,
-          color: textColor,
-          fontSize: 15,
-          fontWeight: "bold",
-        },
-        subtitle: config.description
-          ? { text: config.description, color: subtextColor, fontSize: 11 }
-          : undefined,
         data,
         series: [
           {
-            type: config.type === "donut" ? "donut" : "pie",
+            type: isDonut ? ("donut" as const) : ("pie" as const),
             angleKey: "value",
             legendItemKey: "label",
-            calloutLabelKey: "label",
             sectorLabelKey: "value",
-            outerRadiusRatio: 0.62,
-            innerRadiusRatio: 0.38,
+            outerRadiusRatio: 0.90,
+            innerRadiusRatio: isDonut ? 0.52 : 0,
             fills: paypalColors,
             strokes: ["#ffffff"],
             strokeWidth: 2,
+            sectorLabel: {
+              color: "#ffffff",
+              fontWeight: "bold",
+              fontSize: 12,
+            },
           },
         ],
         legend: {
           position: "bottom",
-          pagination: {
-            enabled: true,
-          },
           item: {
             label: { color: legendColor, fontSize: 11 },
           },
@@ -115,15 +109,6 @@ export function AGChartWrapper({ config, height = 300 }: AGChartWrapperProps) {
     return {
       theme: "ag-default",
       background: { fill: "transparent" },
-      title: {
-        text: config.title,
-        color: textColor,
-        fontSize: 15,
-        fontWeight: "bold",
-      },
-      subtitle: config.description
-        ? { text: config.description, color: subtextColor, fontSize: 11 }
-        : undefined,
       data: rowData,
       series,
       legend: {

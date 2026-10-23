@@ -70,10 +70,17 @@ export interface BusinessProfile {
   };
 }
 
+export interface FollowUpAction {
+  label: string;
+  action_type: "query" | "navigate" | "action";
+  payload: string;
+}
+
 export interface ChatResponse {
   answer: string;
   chart?: ChartConfig;
   kpis?: Record<string, unknown>;
+  follow_up_suggestions?: FollowUpAction[];
   agent_trace?: string[];
 }
 
@@ -171,6 +178,47 @@ export async function connectPayPalCredentials(
   });
   if (!res.ok) {
     throw new Error(`Credentials update failed with status ${res.status}`);
+  }
+  return await res.json();
+}
+
+export async function sendInvoiceReminder(
+  invoiceId: string,
+  note?: string
+): Promise<{ success: boolean; error?: string; status_code?: number }> {
+  const res = await fetch(`${API_BASE}/api/invoices/${encodeURIComponent(invoiceId)}/remind`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ note: note || "Please remit payment for your pending PayPal invoice." })
+  });
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`Failed to send reminder (${res.status}): ${errorText || res.statusText}`);
+  }
+  return await res.json();
+}
+
+export interface BriefingHighlight {
+  label: string;
+  value: string;
+  change: string;
+  type: "positive" | "warning" | "neutral";
+}
+
+export interface ExecutiveBriefing {
+  greeting: string;
+  date: string;
+  headline: string;
+  summary: string;
+  highlights: BriefingHighlight[];
+  action_items: string[];
+  audio_script: string;
+}
+
+export async function fetchExecutiveBriefing(): Promise<ExecutiveBriefing> {
+  const res = await fetch(`${API_BASE}/api/executive-briefing`);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch executive briefing (${res.status})`);
   }
   return await res.json();
 }

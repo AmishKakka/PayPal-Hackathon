@@ -5,13 +5,16 @@ import {
   fetchTransactions, 
   fetchStandardCharts,
   generateCustomChart,
+  fetchExecutiveBriefing,
   TransactionItem, 
-  ChartConfig 
+  ChartConfig,
+  ExecutiveBriefing
 } from "@/lib/api";
 import { AGChartWrapper } from "@/components/charts/AGChartWrapper";
 import { AGGridTransactions } from "@/components/charts/AGGridTransactions";
+import { ExecutiveBriefingCard } from "@/components/briefing/ExecutiveBriefingCard";
 import { useBusinessProfile } from "@/context/BusinessProfileContext";
-import { Plus, Sparkles, X, Loader2 } from "lucide-react";
+import { Plus, Sparkles, X, Loader2, Pin, RefreshCw } from "lucide-react";
 
 const SUGGESTED_PROMPTS = [
   "Chart showing which of my products sell the most",
@@ -24,17 +27,27 @@ export default function BasicChartsPage() {
   const { profile } = useBusinessProfile();
   const signal = profile.primary_signal || "subscriptions";
 
+  const [briefing, setBriefing] = useState<ExecutiveBriefing | null>(null);
   const [transactions, setTransactions] = useState<TransactionItem[]>([]);
+  const [isRefreshingTxns, setIsRefreshingTxns] = useState(false);
+  const [lastUpdatedTxns, setLastUpdatedTxns] = useState<Date | null>(null);
   const [standardCharts, setStandardCharts] = useState<ChartConfig[]>([]);
-  const [customCharts, setCustomCharts] = useState<ChartConfig[]>(() => {
-    if (typeof window === "undefined") return [];
+  const [customCharts, setCustomCharts] = useState<ChartConfig[]>([]);
+  const [hasLoadedSaved, setHasLoadedSaved] = useState(false);
+
+  const handleRefreshTransactions = async () => {
+    if (isRefreshingTxns) return;
+    setIsRefreshingTxns(true);
     try {
-      const saved = sessionStorage.getItem("uno_custom_charts");
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
+      const res = await fetchTransactions();
+      setTransactions(res);
+      setLastUpdatedTxns(new Date());
+    } catch (e) {
+      console.error("Error refreshing transactions:", e);
+    } finally {
+      setIsRefreshingTxns(false);
     }
-  });
+  };
 
   // Modal State
   const [showAddModal, setShowAddModal] = useState(false);
@@ -42,39 +55,67 @@ export default function BasicChartsPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Sync custom charts to sessionStorage
+  // Load custom charts from localStorage on client mount & listen for storage events
   useEffect(() => {
-    try {
-      sessionStorage.setItem("uno_custom_charts", JSON.stringify(customCharts));
-    } catch {
-      // ignore
-    }
-  }, [customCharts]);
+    const loadSaved = () => {
+      try {
+        const saved = localStorage.getItem("uno_custom_charts") || sessionStorage.getItem("uno_custom_charts");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed)) {
+            setCustomCharts(parsed);
+          }
+        }
+      } catch (e) {
+        console.error("Failed to load saved custom charts:", e);
+      }
+    };
+
+    loadSaved();
+
+    window.addEventListener("storage", loadSaved);
+    window.addEventListener("uno_charts_updated", loadSaved);
+
+    return () => {
+      window.removeEventListener("storage", loadSaved);
+      window.removeEventListener("uno_charts_updated", loadSaved);
+    };
+  }, []);
 
   useEffect(() => {
     async function loadData() {
-      try {
-        const [txnRes, chartsRes] = await Promise.all([
-          fetchTransactions(),
-          fetchStandardCharts()
-        ]);
-        setTransactions(txnRes);
-        if (chartsRes && chartsRes.length > 0) {
-          let orderedCharts = [...chartsRes];
-          if (signal === "subscriptions") {
-            const subChart = chartsRes.find(c => c.id === "subscription-tiers");
-            const otherCharts = chartsRes.filter(c => c.id !== "subscription-tiers");
-            if (subChart) orderedCharts = [subChart, ...otherCharts];
-          } else if (signal === "payouts") {
-            const regChart = chartsRes.find(c => c.id === "regional-distribution");
-            const otherCharts = chartsRes.filter(c => c.id !== "regional-distribution");
-            if (regChart) orderedCharts = [regChart, ...otherCharts];
+      // 1. Fetch charts & transactions immediately
+      fetchTransactions()
+        .then(res => {
+          setTransactions(res);
+          setLastUpdatedTxns(new Date());
+        })
+        .catch(e => console.error("Error loading transactions:", e));
+
+      fetchStandardCharts()
+        .then(chartsRes => {
+          if (chartsRes && chartsRes.length > 0) {
+            let orderedCharts = [...chartsRes];
+            if (signal === "subscriptions") {
+              const subChart = chartsRes.find(c => c.id === "subscription-tiers");
+              const otherCharts = chartsRes.filter(c => c.id !== "subscription-tiers");
+              if (subChart) orderedCharts = [subChart, ...otherCharts];
+            } else if (signal === "payouts") {
+              const regChart = chartsRes.find(c => c.id === "regional-distribution");
+              const otherCharts = chartsRes.filter(c => c.id !== "regional-distribution");
+              if (regChart) orderedCharts = [regChart, ...otherCharts];
+            }
+            setStandardCharts(orderedCharts);
           }
-          setStandardCharts(orderedCharts);
-        }
-      } catch (e) {
-        console.error("Error loading dashboard data:", e);
-      }
+        })
+        .catch(e => console.error("Error loading standard charts:", e));
+
+      // 2. Fetch executive briefing in parallel
+      fetchExecutiveBriefing()
+        .then(res => {
+          if (res) setBriefing(res);
+        })
+        .catch(() => null);
     }
     loadData();
   }, [signal]);
@@ -88,7 +129,15 @@ export default function BasicChartsPage() {
 
     try {
       const newChart = await generateCustomChart(chartPrompt.trim());
-      setCustomCharts(prev => [...prev, newChart]);
+      setCustomCharts(prev => {
+        const updated = [...prev, newChart];
+        try {
+          localStorage.setItem("uno_custom_charts", JSON.stringify(updated));
+          sessionStorage.setItem("uno_custom_charts", JSON.stringify(updated));
+          window.dispatchEvent(new Event("uno_charts_updated"));
+        } catch {}
+        return updated;
+      });
       setChartPrompt("");
       setShowAddModal(false);
     } catch (err: unknown) {
@@ -101,80 +150,132 @@ export default function BasicChartsPage() {
   };
 
   const handleRemoveCustomChart = (chartId: string) => {
-    setCustomCharts(prev => prev.filter(c => c.id !== chartId));
+    setCustomCharts(prev => {
+      const updated = prev.filter(c => c.id !== chartId);
+      try {
+        localStorage.setItem("uno_custom_charts", JSON.stringify(updated));
+        sessionStorage.setItem("uno_custom_charts", JSON.stringify(updated));
+        window.dispatchEvent(new Event("uno_charts_updated"));
+      } catch {}
+      return updated;
+    });
   };
 
   const allCharts = [...standardCharts, ...customCharts];
 
   return (
-    <div className="max-w-[1440px] mx-auto px-6 sm:px-10 py-6 space-y-6">
+    <div className="w-full max-w-[1920px] mx-auto px-4 sm:px-6 lg:px-8 py-3.5 space-y-6">
 
-      {/* Interactive AG Charts Grid (PayPal Functional Blue Cards) */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {allCharts.map((chart) => {
-          const isCustom = customCharts.some(c => c.id === chart.id);
-          return (
-            <div 
-              key={chart.id} 
-              className="rounded-2xl p-6 bg-white border border-[#E2E8F0] shadow-[0_2px_8px_rgba(0,41,145,0.04)] hover:shadow-[0_16px_32px_-8px_rgba(0,41,145,0.08)] hover:border-[#002991]/40 transition-all relative group"
-            >
-              <div className="mb-4 flex items-start justify-between gap-2">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-lg font-semibold text-[#000000] tracking-tight">{chart.title}</h3>
+      {/* 70:30 Container Layout (Fixed Height with Independent Scroll) */}
+      <div className="grid grid-cols-1 lg:grid-cols-10 gap-6 w-full h-[680px] xl:h-[720px] overflow-hidden">
+
+        {/* Left Section (70%): Only Charts, 2 Charts in a Row */}
+        <div className="lg:col-span-7 h-full overflow-y-auto pr-2 pb-4 scrollbar-thin">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 pb-2">
+            {allCharts.map((chart) => {
+              const isCustom = customCharts.some(c => c.id === chart.id);
+              return (
+                <div 
+                  key={chart.id} 
+                  className="rounded-2xl p-5 bg-white border border-[#E2E8F0] shadow-[0_2px_8px_rgba(0,41,145,0.04)] hover:shadow-[0_12px_24px_-6px_rgba(0,41,145,0.08)] hover:border-[#002991]/30 transition-all relative group flex flex-col justify-between"
+                >
+                  <div className="mb-3 flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-base font-semibold text-[#000000] tracking-tight truncate" title={chart.title}>
+                          {chart.title}
+                        </h3>
+                        {isCustom && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-[#E5F3FF] text-[#002991] border border-[#008CFF]/20 shrink-0">
+                            <Pin className="w-2.5 h-2.5 text-[#008CFF]" />
+                            <span>Pinned</span>
+                          </span>
+                        )}
+                      </div>
+                      {chart.description && (
+                        <p className="text-xs text-[#4A5568] mt-0.5 line-clamp-1" title={chart.description}>
+                          {chart.description}
+                        </p>
+                      )}
+                    </div>
+
                     {isCustom && (
-                      <span className="text-[10px] font-mono font-medium px-2 py-0.5 rounded-full bg-[#E5F3FF] text-[#002991] border border-[#008CFF]/30">
-                        AI Generated
-                      </span>
+                      <button
+                        onClick={() => handleRemoveCustomChart(chart.id)}
+                        title="Remove custom chart"
+                        className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors opacity-80 group-hover:opacity-100 cursor-pointer shrink-0"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
                     )}
                   </div>
-                  {chart.description && (
-                    <p className="text-xs text-[#4A5568] mt-1">{chart.description}</p>
-                  )}
+                  <div className="w-full overflow-hidden">
+                    <AGChartWrapper config={chart} height={300} />
+                  </div>
                 </div>
+              );
+            })}
 
-                {isCustom && (
-                  <button
-                    onClick={() => handleRemoveCustomChart(chart.id)}
-                    title="Remove custom chart"
-                    className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors opacity-80 group-hover:opacity-100 cursor-pointer"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                )}
+            {/* Add Custom Chart Card (fits 2-column grid) */}
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="rounded-2xl p-6 min-h-[380px] bg-[#F5F7FA]/70 border-2 border-dashed border-[#CBD5E1] hover:border-[#008CFF] hover:bg-[#E5F3FF]/40 transition-all duration-300 flex flex-col items-center justify-center text-center group cursor-pointer"
+              aria-label="Add custom chart"
+            >
+              <div className="w-13 h-13 rounded-2xl bg-white border border-[#E2E8F0] shadow-sm flex items-center justify-center text-[#002991] group-hover:scale-110 group-hover:shadow-[0_4px_16px_rgba(0,140,255,0.2)] transition-all duration-300 mb-3.5">
+                <Plus className="w-6 h-6 text-[#002991]" />
               </div>
-              <AGChartWrapper config={chart} height={320} />
-            </div>
-          );
-        })}
+              <h4 className="text-base font-semibold text-[#000000] group-hover:text-[#002991] transition-colors">
+                Add Custom Chart
+              </h4>
+              <p className="text-xs text-[#4A5568] max-w-xs mt-1 leading-relaxed">
+                Ask Agent Warren to synthesize custom AG Charts from live PayPal data
+              </p>
+              <div className="mt-3.5 flex items-center gap-1.5 text-[11px] font-mono font-medium px-3 py-1 rounded-full bg-white text-[#002991] border border-[#E2E8F0] shadow-xs group-hover:border-[#008CFF]/50 transition-colors">
+                <Sparkles className="w-3 h-3 text-[#008CFF]" />
+                <span>Warren Chart Synthesizer</span>
+              </div>
+            </button>
+          </div>
+        </div>
 
-        <button
-          onClick={() => setShowAddModal(true)}
-          className="rounded-2xl p-6 min-h-[416px] bg-[#F5F7FA]/70 border-2 border-dashed border-[#CBD5E1] hover:border-[#008CFF] hover:bg-[#E5F3FF]/40 transition-all duration-300 flex flex-col items-center justify-center text-center group cursor-pointer"
-          aria-label="Add custom chart"
-        >
-          <div className="w-14 h-14 rounded-2xl bg-white border border-[#E2E8F0] shadow-sm flex items-center justify-center text-[#002991] group-hover:scale-110 group-hover:shadow-[0_4px_16px_rgba(0,140,255,0.2)] transition-all duration-300 mb-4">
-            <Plus className="w-7 h-7 text-[#002991]" />
-          </div>
-          <h4 className="text-base font-semibold text-[#000000] group-hover:text-[#002991] transition-colors">
-            Add Custom Chart
-          </h4>
-          <p className="text-xs text-[#4A5568] max-w-xs mt-1.5 leading-relaxed">
-            Ask AG Studio AI to generate a custom chart from your live PayPal data
-          </p>
-          <div className="mt-4 flex items-center gap-1.5 text-[11px] font-mono font-medium px-3 py-1 rounded-full bg-white text-[#002991] border border-[#E2E8F0] shadow-xs group-hover:border-[#008CFF]/50 transition-colors">
-            <Sparkles className="w-3 h-3 text-[#008CFF]" />
-            <span>AG Studio AI</span>
-          </div>
-        </button>
+        {/* Right Section (30%): Morning Executive Briefing Info */}
+        <div className="lg:col-span-3 h-full overflow-y-auto pr-1 pb-4 scrollbar-thin">
+          {briefing ? (
+            <ExecutiveBriefingCard briefing={briefing} />
+          ) : (
+            <div className="rounded-2xl p-6 bg-white border border-[#E2E8F0] shadow-xs flex items-center justify-center gap-2 text-xs text-[#4A5568]">
+              <span className="flex h-2 w-2 rounded-full bg-[#008CFF] animate-ping" />
+              <span>Loading Executive Briefing telemetry...</span>
+            </div>
+          )}
+        </div>
+
       </div>
 
-      {/* Interactive Transaction Ledger */}
+      {/* Transaction Ledger at the bottom of Quick View tab */}
       <div className="rounded-2xl p-6 bg-white border border-[#E2E8F0] shadow-[0_2px_8px_rgba(0,41,145,0.04)] overflow-hidden">
-        <div className="mb-4 flex items-center justify-between">
+        <div className="mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h3 className="text-lg font-semibold text-[#000000] tracking-tight">Recent Settlement Ledger</h3>
             <p className="text-xs text-[#4A5568] mt-0.5">Live PayPal money movement synchronized from sandbox API</p>
+          </div>
+          <div className="flex items-center gap-3 self-end sm:self-auto">
+            {lastUpdatedTxns && (
+              <span className="text-[11px] font-mono text-[#64748B] hidden sm:inline-block">
+                Updated {lastUpdatedTxns.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              </span>
+            )}
+            <button
+              id="refresh-transactions-btn"
+              onClick={handleRefreshTransactions}
+              disabled={isRefreshingTxns}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-[#F5F7FA] border border-[#CBD5E1] hover:border-[#008CFF] text-xs font-semibold text-[#002991] transition-all shadow-2xs hover:shadow-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed group"
+              title="Refresh transaction ledger from live PayPal sandbox"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-[#008CFF] ${isRefreshingTxns ? "animate-spin" : "group-hover:rotate-180 transition-transform duration-300"}`} />
+              <span>{isRefreshingTxns ? "Refreshing..." : "Refresh"}</span>
+            </button>
           </div>
         </div>
         <AGGridTransactions transactions={transactions} />

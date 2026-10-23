@@ -10,9 +10,9 @@ import {
   ColDef,
   themeQuartz
 } from "ag-grid-community";
-import { TransactionItem } from "@/lib/api";
+import { TransactionItem, sendInvoiceReminder } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
-import { Download, Search, CheckCircle, Clock, RotateCcw } from "lucide-react";
+import { Download, Search, CheckCircle, Clock, RotateCcw, BellRing, Loader2, Check } from "lucide-react";
 
 // Register AG Grid Community modules
 ModuleRegistry.registerModules([AllCommunityModule, CsvExportModule, ValidationModule]);
@@ -26,10 +26,26 @@ export function AGGridTransactions({ transactions }: AGGridTransactionsProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedType, setSelectedType] = useState<string>("ALL");
   const [mounted, setMounted] = useState(false);
+  const [reminderState, setReminderState] = useState<Record<string, "idle" | "sending" | "sent" | "error">>({});
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  const handleSendReminder = async (invoiceId: string) => {
+    setReminderState(prev => ({ ...prev, [invoiceId]: "sending" }));
+    try {
+      const res = await sendInvoiceReminder(invoiceId);
+      if (res.success) {
+        setReminderState(prev => ({ ...prev, [invoiceId]: "sent" }));
+      } else {
+        setReminderState(prev => ({ ...prev, [invoiceId]: "error" }));
+      }
+    } catch (e) {
+      console.error("Reminder failed:", e);
+      setReminderState(prev => ({ ...prev, [invoiceId]: "error" }));
+    }
+  };
 
   const gridTheme = useMemo(() => themeQuartz, []);
 
@@ -167,7 +183,55 @@ export function AGGridTransactions({ transactions }: AGGridTransactionsProps) {
         );
       },
     },
-  ], []);
+    {
+      headerName: "1-Click Action",
+      width: 160,
+      sortable: false,
+      filter: false,
+      cellRenderer: (params: { data: TransactionItem | undefined }) => {
+        if (!params.data) return null;
+        const isPending = params.data.status === "PENDING";
+        const state = reminderState[params.data.id] || "idle";
+
+        if (!isPending) {
+          return (
+            <span className="text-[11px] text-[#94A3B8] font-medium">
+              Settled
+            </span>
+          );
+        }
+
+        if (state === "sending") {
+          return (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#E5F3FF] text-[#002991] text-[11px] font-semibold border border-[#008CFF]/30">
+              <Loader2 className="w-3 h-3 animate-spin text-[#008CFF]" />
+              <span>Sending...</span>
+            </span>
+          );
+        }
+
+        if (state === "sent") {
+          return (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 text-[11px] font-semibold border border-emerald-200">
+              <Check className="w-3 h-3 text-emerald-600" />
+              <span>Reminder Sent</span>
+            </span>
+          );
+        }
+
+        return (
+          <button
+            onClick={() => handleSendReminder(params.data!.id)}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#002991] hover:bg-[#008CFF] text-white text-[11px] font-semibold shadow-xs transition-colors cursor-pointer"
+            title="Send automated payment reminder via PayPal Invoicing API"
+          >
+            <BellRing className="w-3 h-3" />
+            <span>Send Reminder</span>
+          </button>
+        );
+      },
+    },
+  ], [reminderState]);
 
   const defaultColDef = useMemo<ColDef>(() => ({
     sortable: true,

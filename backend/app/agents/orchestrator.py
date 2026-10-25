@@ -2,6 +2,7 @@ import os
 import json
 import re
 import time
+import asyncio
 import operator
 from typing import Dict, Any, List, Optional, TypedDict, Annotated
 from dotenv import load_dotenv
@@ -140,7 +141,7 @@ class WarrenOrchestrator:
         is_sub = any(w in q for w in ["subscription", "mrr", "churn", "recurring", "tier", "plan", "cancel", "retention"])
         is_region = any(w in q for w in ["region", "country", "territory", "where", "geographic", "sales", "volume", "transactions", "ledger", "customer", "who"])
         is_forecast = any(w in q for w in ["forecast", "future", "outlook", "next month", "30 days", "90 days", "project", "runway"])
-        is_invoice = any(w in q for w in ["invoice", "overdue", "unpaid", "billing", "dunning", "collect", "receivable", "remind", "reminder"])
+        is_invoice = any(w in q for w in ["invoice", "overdue", "unpaid", "billing", "dunning", "collect", "receivable", "remind", "reminder", "create", "draft", "bill"])
         is_dispute = any(w in q for w in ["dispute", "chargeback", "claim", "fraud", "buyer conflict", "protection"])
 
         agents_prob = {
@@ -309,12 +310,104 @@ class WarrenOrchestrator:
             "send automated reminder", "dunning reminder", "notify customer", "chase payment"
         ])
         is_draft_action = any(term in q_lower for term in [
-            "send draft", "publish draft", "publish invoice", "send elena", "send invoice inv2-"
+            "send draft", "publish draft", "publish invoice", "send draft invoice", "publish draft invoice", "dispatch draft", "send invoice inv2-"
+        ])
+        is_create_action = any(term in q_lower for term in [
+            "create invoice", "create an invoice", "generate invoice", "new invoice", "bill customer", "draft invoice for", "create new invoice"
         ])
 
         action_trace_item = None
 
-        if is_remind_action:
+        if is_create_action:
+            # Dynamically extract invoice parameters via Gemini LLM using live sandbox context
+            c_name = "Valued Customer"
+            c_email = "customer@example.com"
+            c_item = "Merchant Professional Services"
+            c_amount = 100.00
+            c_note = None
+            is_draft_mode = "draft" in q_lower and "send" not in q_lower
+
+            # Collect real customer directory from live PayPal Sandbox data
+            known_customers = []
+            seen_emails = set()
+            for inv in invoices:
+                for r in inv.get("primary_recipients", []):
+                    b = r.get("billing_info", {})
+                    n = b.get("name", {})
+                    fn = n.get("full_name") or f"{n.get('given_name', '')} {n.get('surname', '')}".strip()
+                    em = b.get("email_address")
+                    if fn and em and em not in seen_emails:
+                        seen_emails.add(em)
+                        known_customers.append({"name": fn, "email": em})
+
+            if self.llm:
+                try:
+                    extraction_prompt = (
+                        "You are an AI financial copilot for PayPal merchants.\n"
+                        f"Extract invoice creation parameters from this user query: \"{state['query']}\"\n"
+                        "Return ONLY a JSON object with these exact keys:\n"
+                        "- customer_name: string (recipient full name)\n"
+                        "- customer_email: string (valid email address)\n"
+                        "- item_name: string (description of product, service, or fee)\n"
+                        "- amount: number (positive float)\n"
+                        "- note: string or null\n"
+                        "- is_draft: boolean (true if user specifically asked to draft or save without sending; false if user asked to send, bill, create, or dispatch)\n\n"
+                        f"Known existing PayPal customers on file:\n{json.dumps(known_customers[:20], indent=2)}\n\n"
+                        "Rules:\n"
+                        "1. If a known customer is referenced by first name, last name, or full name, resolve their on-file email address from the list above unless an explicit email is specified.\n"
+                        "2. If an email is provided in the query, always use that email.\n"
+                        "3. Do not include markdown codeblocks or extra text. Return pure JSON only."
+                    )
+                    llm_resp = await asyncio.to_thread(self.llm.invoke, [HumanMessage(content=extraction_prompt)])
+                    raw_content = str(llm_resp.content).strip()
+                    cleaned_json = raw_content.replace("```json", "").replace("```", "").strip()
+                    parsed = json.loads(cleaned_json)
+
+                    c_name = parsed.get("customer_name") or c_name
+                    c_email = parsed.get("customer_email") or c_email
+                    c_item = parsed.get("item_name") or c_item
+                    c_amount = float(parsed.get("amount") or c_amount)
+                    c_note = parsed.get("note")
+                    is_draft_mode = bool(parsed.get("is_draft", is_draft_mode))
+                except Exception as e:
+                    print(f"[InvoiceCashflowAgent] LLM extraction error, falling back to dynamic parser: {e}")
+                    import re
+                    email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', state["query"])
+                    if email_match:
+                        c_email = email_match.group(0)
+                    amt_match = re.search(r'\$?([0-9]+(?:\.[0-9]{1,2})?)', state["query"])
+                    if amt_match:
+                        c_amount = float(amt_match.group(1))
+
+            res = await paypal_service.create_invoice(
+                customer_name=c_name,
+                customer_email=c_email,
+                item_name=c_item,
+                amount=c_amount,
+                note=c_note,
+                send_to_recipient=not is_draft_mode
+            )
+
+            if res.get("success"):
+                inv_id = res.get("invoice_id")
+                inv_num = res.get("invoice_number")
+                inv_status = res.get("status")
+                raw_evidence = (
+                    f"⚡ AGENTIC ACTION EXECUTED: Created & Dispatched Live PayPal Invoice\n"
+                    f"- Execution Result: Successfully generated live PayPal invoice via PayPal Invoicing API v2 (`/v2/invoicing/invoices`)\n"
+                    f"- Invoice Number: **{inv_num}** (ID: `{inv_id}`)\n"
+                    f"- Recipient: **{c_name}** ({c_email})\n"
+                    f"- Line Item: **{c_item}**\n"
+                    f"- Total Amount: **${c_amount:.2f} USD**\n"
+                    f"- Live Status: **{inv_status}** ({'Delivered official payment notification to recipient' if not is_draft_mode else 'Saved in DRAFT mode'})\n"
+                    f"- Proactive Next Step: The recipient will receive official PayPal payment instructions directly."
+                )
+                action_trace_item = f"Action Executed: Created & Dispatched Invoice {inv_num} (${c_amount:.2f})"
+            else:
+                raw_evidence = f"✗ Failed to create invoice: {res.get('error')}"
+                action_trace_item = "Action Failed: Dynamic invoice creation"
+
+        elif is_remind_action:
             # Under PayPal Invoicing API rules: Only invoices in SENT, UNPAID, SCHEDULED, OVERDUE can be reminded.
             # DRAFT invoices cannot receive reminders; they must be sent/published first.
             eligible_for_remind = [inv for inv in (unpaid + overdue) if inv.get("status") in ["SENT", "UNPAID", "SCHEDULED", "OVERDUE"]]
@@ -324,10 +417,24 @@ class WarrenOrchestrator:
             target_invoices = []
             for inv in eligible_for_remind:
                 recips = inv.get("primary_recipients", [])
-                c_name = recips[0].get("billing_info", {}).get("name", {}).get("full_name", "") if recips else ""
-                inv_id = inv.get("id", "")
-                has_specific = any(k in q_lower for k in [c_name.lower(), inv_id.lower()])
-                if has_specific:
+                b_info = recips[0].get("billing_info", {}) if recips else {}
+                name_obj = b_info.get("name", {})
+                c_full = name_obj.get("full_name") or f"{name_obj.get('given_name', '')} {name_obj.get('surname', '')}".strip()
+                c_given = name_obj.get("given_name", "").lower()
+                c_sur = name_obj.get("surname", "").lower()
+                c_email = b_info.get("email_address", "").lower()
+                inv_id = inv.get("id", "").lower()
+                inv_num = inv.get("detail", {}).get("invoice_number", "").lower()
+
+                matches = (
+                    (c_full and c_full.lower() in q_lower) or
+                    (c_given and len(c_given) > 2 and c_given in q_lower) or
+                    (c_sur and len(c_sur) > 2 and c_sur in q_lower) or
+                    (c_email and c_email in q_lower) or
+                    (inv_id and inv_id in q_lower) or
+                    (inv_num and inv_num in q_lower)
+                )
+                if matches:
                     target_invoices.append(inv)
 
             # If user query said "all", "pending", "5 accounts", or no specific name matches:
@@ -338,7 +445,9 @@ class WarrenOrchestrator:
             for inv in target_invoices:
                 inv_id = inv.get("id")
                 recips = inv.get("primary_recipients", [])
-                c_name = recips[0].get("billing_info", {}).get("name", {}).get("full_name", "Customer") if recips else "Customer"
+                b_info = recips[0].get("billing_info", {}) if recips else {}
+                name_obj = b_info.get("name", {})
+                c_name = name_obj.get("full_name") or f"{name_obj.get('given_name', '')} {name_obj.get('surname', '')}".strip() or "Customer"
                 amt = float(inv.get("amount", {}).get("value", 0))
 
                 try:
@@ -390,8 +499,31 @@ class WarrenOrchestrator:
 
         elif is_draft_action:
             draft_invoices = [inv for inv in unpaid if inv.get("status") == "DRAFT"]
-            published_records = []
+            target_drafts = []
             for d in draft_invoices:
+                recips = d.get("primary_recipients", [])
+                b_info = recips[0].get("billing_info", {}) if recips else {}
+                name_obj = b_info.get("name", {})
+                c_full = (name_obj.get("full_name") or f"{name_obj.get('given_name', '')} {name_obj.get('surname', '')}").strip()
+                c_given = name_obj.get("given_name", "").lower()
+                c_sur = name_obj.get("surname", "").lower()
+                c_email = b_info.get("email_address", "").lower()
+                inv_id = d.get("id", "").lower()
+                inv_num = d.get("detail", {}).get("invoice_number", "").lower()
+
+                if ((c_full and c_full.lower() in q_lower) or
+                    (c_given and len(c_given) > 2 and c_given in q_lower) or
+                    (c_sur and len(c_sur) > 2 and c_sur in q_lower) or
+                    (c_email and c_email in q_lower) or
+                    (inv_id and inv_id in q_lower) or
+                    (inv_num and inv_num in q_lower)):
+                    target_drafts.append(d)
+
+            if not target_drafts:
+                target_drafts = draft_invoices
+
+            published_records = []
+            for d in target_drafts:
                 inv_id = d.get("id")
                 recips = d.get("primary_recipients", [])
                 c_name = recips[0].get("billing_info", {}).get("name", {}).get("full_name", "Customer") if recips else "Customer"
@@ -496,19 +628,9 @@ class WarrenOrchestrator:
             f"### {s['agent']}\n{s['raw']}" for s in sections
         )
  
-        # 1. Retrieveing  merchant business profile
-        profile = paypal_service.get_profile()
-        primary_signal = profile.get("primary_signal", "payouts")
-        profile_context = (
-            f"CONFIRMED MERCHANT PROFILE & OPERATING CONTEXT:\n"
-            f"- Primary Revenue Driver: {primary_signal.upper()}\n"
-            f"- Has Active Subscriptions: {profile.get('has_subscriptions', False)}\n"
-            f"- Has Invoices: {profile.get('has_invoices', False)}\n"
-            f"- Has Customer Disputes: {profile.get('has_disputes', False)}\n"
-            f"- Has Payouts & Global Transactions: {profile.get('has_payouts', False)}\n\n"
-        )
-
-        # 2. Determine dynamic AG Chart strictly tailored to user request and live data
+        # Retrieve dynamic merchant operating profile and live business context
+        merchant_context = await paypal_service.get_merchant_context()
+        # Determine dynamic AG Chart strictly tailored to user request and live data
         chart = None
         try:
             custom_chart = await self.generate_chart(state["query"])
@@ -517,7 +639,7 @@ class WarrenOrchestrator:
         except Exception as e:
             print(f"[WarrenOrchestrator] Dynamic chart generation error: {e}")
 
-        # If custom chart could not be generated, use contextual fallback from activated agents
+        # If custom chart could not be generated, use fallback from activated agents
         if not chart:
             activated = state.get("agentsNeeded", [])
             charts_list = await paypal_service.get_standard_charts()
@@ -582,8 +704,8 @@ class WarrenOrchestrator:
             elif charts_list and charts_list[0].get("categories"):
                 chart = charts_list[0]
 
-        # 3. Synthesize Markdown Answer via Gemini LLM using ONLY live evidence
         final_markdown = ""
+        follow_ups = []
         if self.llm:
             try:
                 system_prompt = (
@@ -591,112 +713,129 @@ class WarrenOrchestrator:
                     "Your responses MUST be formatted in rich GitHub-flavored Markdown:\n"
                     "- Use clear headings (`### `).\n"
                     "- Use bullet points with bold figures.\n"
-                    "- STRICT REQUIREMENT: Base your answers ONLY on the live PayPal evidence provided below.\n"
-                    "- CRITICAL AGENTIC ACTION RULE: If the live evidence shows that an agentic action was executed (e.g. 'AGENTIC ACTION EXECUTED: Dispatched PayPal Invoicing Reminders'), celebrate that the action has been completed! State clearly that the payment reminders have been successfully dispatched via the live PayPal Invoicing API v2. List the specific customer names, amounts, invoice IDs, and delivery statuses. NEVER say 'I can help you send reminders' when the reminders have already been sent!\n"
+                    "- STRICT REQUIREMENT: Base your answers ONLY on the live PayPal evidence and merchant profile provided below.\n"
+                    "- CRITICAL AGENTIC ACTION RULE: If the live evidence shows that an agentic action was executed (e.g. 'AGENTIC ACTION EXECUTED: Dispatched PayPal Invoicing Reminders' or 'AGENTIC ACTION EXECUTED: Created & Dispatched Live PayPal Invoice'), celebrate that the action has been completed! State clearly that the action was successfully executed via the live PayPal Invoicing API v2. List specific customer names, amounts, invoice IDs, and delivery statuses. NEVER say 'I can help you send reminders' or 'I will create an invoice' when the action has already been performed!\n"
                     "- If draft invoices exist that could not be reminded, explain why (PayPal requires draft invoices to be published before reminders can be issued).\n"
                     "- NEVER fabricate or hallucinate numbers, names, or metrics not present in the live evidence.\n"
                     "- If the merchant's PayPal account has 0 records for a category (e.g. 0 disputes, 0 subscriptions), state that fact clearly.\n\n"
-                    f"{profile_context}"
+                    f"{merchant_context}\n\n"
+                    "DYNAMIC AGENTIC FOLLOW-UPS REQUIREMENT:\n"
+                    "At the very end of your response, generate exactly 3 intelligent, highly relevant, and actionable follow-up suggestion buttons that the merchant would want to click next.\n"
+                    "Base these follow-up buttons directly on the topic discussed, the merchant's real business profile, and the live evidence (referencing real customer names, amounts, or plans where relevant).\n"
+                    "Format these 3 suggestions in a fenced JSON block at the very end of your response exactly like:\n"
+                    "```json:followups\n"
+                    "[\n"
+                    "  {\n"
+                    "    \"label\": \"⚡ <Concise button label with emoji, e.g. ⚡ Remind Amish Kakka ($230.00 overdue)>\",\n"
+                    "    \"action_type\": \"query\",\n"
+                    "    \"payload\": \"<Actionable user query prompt to run next, e.g. Send 1-click reminder to Amish Kakka for overdue invoice ($230.00)>\"\n"
+                    "  },\n"
+                    "  {\n"
+                    "    \"label\": \"📊 <Concise label with emoji, e.g. 📊 View MRR Breakdown Across Plans>\",\n"
+                    "    \"action_type\": \"query\",\n"
+                    "    \"payload\": \"<Actionable prompt to run next, e.g. Breakdown recurring MRR contribution by subscription plan tier>\"\n"
+                    "  },\n"
+                    "  {\n"
+                    "    \"label\": \"🔮 <Concise label with emoji, e.g. 🔮 90-Day Cash Flow Runway>\",\n"
+                    "    \"action_type\": \"query\",\n"
+                    "    \"payload\": \"<Actionable prompt to run next, e.g. Predict my 30-day and 90-day cash flow runway>\"\n"
+                    "  }\n"
+                    "]\n"
+                    "```\n"
+                    "Do NOT output any additional text after the ```json:followups block."
                 )
                 user_prompt = (
                     f"Merchant question: {state['query']}\n\n"
                     f"Live Evidence from PayPal APIs collected on the fly:\n{evidence}\n\n"
-                    "Synthesize an accurate, structured markdown response answering the merchant's question."
+                    "Synthesize an accurate, structured markdown response answering the merchant's question and provide the 3 dynamic follow-ups."
                 )
                 ai_response = await self.llm.ainvoke([
                     SystemMessage(content=system_prompt),
                     HumanMessage(content=user_prompt)
                 ])
-                final_markdown = ai_response.content
+                raw_llm_text = ai_response.content
+
+                # Parse dynamic follow-ups generated by Gemini LLM
+                if "```json:followups" in raw_llm_text:
+                    parts = raw_llm_text.split("```json:followups")
+                    final_markdown = parts[0].rstrip()
+                    json_str = parts[1].split("```")[0].strip()
+                    try:
+                        parsed_fups = json.loads(json_str)
+                        if isinstance(parsed_fups, list):
+                            for item in parsed_fups[:3]:
+                                if isinstance(item, dict) and "label" in item and "payload" in item:
+                                    follow_ups.append({
+                                        "label": str(item["label"]),
+                                        "action_type": str(item.get("action_type", "query")),
+                                        "payload": str(item["payload"])
+                                    })
+                    except Exception as pe:
+                        print(f"[WarrenOrchestrator] Error parsing LLM follow-ups JSON: {pe}")
+                else:
+                    final_markdown = raw_llm_text
             except Exception as e:
                 print(f"[WarrenOrchestrator] Gemini LLM synthesis error: {e}")
-        # Live fallback
         if not final_markdown:
             final_markdown = f"### Live PayPal Business Analysis\n\n{evidence}"
 
-        # 4. Generate intelligent agentic follow-up action suggestions
-        q_lower = state["query"].lower()
-        activated = state.get("agentsNeeded", [])
-        is_remind_action = any(term in q_lower for term in ["send reminder", "send reminders", "send 1-click", "remind", "1-click reminder", "remind invoice"])
-        is_invoice = "InvoiceCashflowAgent" in activated or any(w in q_lower for w in ["invoice", "overdue", "unpaid", "billing", "dunning", "collect", "receivable", "remind"])
+        # LLM did not provide structured follow-ups, dynamically derive them from live PayPal data
+        if not follow_ups:
+            invoices = await paypal_service.fetch_live_invoices()
+            plans = await paypal_service.fetch_live_plans()
+            overdue_invs = [i for i in invoices if i.get("status") == "OVERDUE"]
+            unpaid_invs = [i for i in invoices if i.get("status") in ["UNPAID", "SENT", "SCHEDULED"]]
+            draft_invs = [i for i in invoices if i.get("status") == "DRAFT"]
+            pending_all = overdue_invs + unpaid_invs
 
-        follow_ups = []
-        if is_invoice:
-            if is_remind_action:
+            if pending_all:
+                top_inv = pending_all[0]
+                recips = top_inv.get("primary_recipients", [])
+                c_name = recips[0].get("billing_info", {}).get("name", {}).get("full_name") or "Customer" if recips else "Customer"
+                amt = float(top_inv.get("amount", {}).get("value", 0))
+                tot_pending_sum = sum(float(i.get("amount", {}).get("value", 0)) for i in pending_all)
+
                 follow_ups.append({
-                    "label": "⚡ Publish Draft Invoice for Elena Rostova ($199.00)",
+                    "label": f"⚡ Remind {c_name} (${amt:.2f})",
                     "action_type": "query",
-                    "payload": "Send draft invoice to Elena Rostova ($199.00)"
+                    "payload": f"Send reminder to {c_name} for pending invoice"
                 })
+                if len(pending_all) > 1:
+                    follow_ups.append({
+                        "label": f"⚡ Send 1-Click Reminders to {len(pending_all)} Accounts (${tot_pending_sum:.2f})",
+                        "action_type": "query",
+                        "payload": f"Send 1-click reminders to {len(pending_all)} accounts with pending invoices (${tot_pending_sum:.2f})"
+                    })
+            elif draft_invs:
+                d_top = draft_invs[0]
+                recips = d_top.get("primary_recipients", [])
+                d_name = recips[0].get("billing_info", {}).get("name", {}).get("full_name") or "Customer" if recips else "Customer"
+                d_amt = float(d_top.get("amount", {}).get("value", 0))
                 follow_ups.append({
-                    "label": "🔮 View 30-Day Cash Flow Runway",
+                    "label": f"⚡ Publish Draft Invoice for {d_name} (${d_amt:.2f})",
                     "action_type": "query",
-                    "payload": "Predict my 30-day and 90-day cash flow runway with reminded receivables"
+                    "payload": f"Send draft invoice to {d_name} (${d_amt:.2f})"
                 })
+
+            if plans:
                 follow_ups.append({
-                    "label": "🛡️ Analyze Subscription Churn Risks",
+                    "label": f"🛡️ Inspect Churn Risk Across {len(plans)} Plans",
                     "action_type": "query",
                     "payload": "Analyze subscription churn risk across tiers"
                 })
             else:
                 follow_ups.append({
-                    "label": "⚡ Send 1-Click Reminders to Unpaid Invoices ($940.00)",
+                    "label": "🛡️ Customer Dispute Health & Protection",
                     "action_type": "query",
-                    "payload": "Send 1-click reminders to 5 accounts with pending invoices ($1,139.00)."
+                    "payload": "Analyze dispute claims and seller protection health"
                 })
-                follow_ups.append({
-                    "label": "⚡ Remind Mateo Silva ($120.00)",
-                    "action_type": "query",
-                    "payload": "Send reminder to Mateo Silva for pending invoice"
-                })
-                follow_ups.append({
-                    "label": "⚡ Publish Draft Invoice ($199.00)",
-                    "action_type": "query",
-                    "payload": "Send draft invoice to Elena Rostova ($199.00)"
-                })
-        elif "SubscriptionChurnAgent" in activated:
+
             follow_ups.append({
-                "label": "🛡️ Review Churn Vulnerability Tips",
+                "label": "🔮 30-Day & 90-Day Cash Flow Runway",
                 "action_type": "query",
-                "payload": "Review churn vulnerability tips for 3 monitored subscription tiers."
+                "payload": "Predict my 30-day and 90-day cash flow runway and forward sales"
             })
-            follow_ups.append({
-                "label": "📊 MRR Breakdown by Plan Tier",
-                "action_type": "query",
-                "payload": "Breakdown recurring MRR contribution by subscription plan tier"
-            })
-            follow_ups.append({
-                "label": "🔮 Forward 90-Day Cash Projection",
-                "action_type": "query",
-                "payload": "What is my 90-day revenue and MRR outlook?"
-            })
-        elif "OutlookForecastAgent" in activated:
-            follow_ups.append({
-                "label": "⚡ Accelerate Receivables via Invoice Reminders",
-                "action_type": "query",
-                "payload": "Send 1-click reminders to 5 accounts with pending invoices ($1,139.00)."
-            })
-            follow_ups.append({
-                "label": "🌐 Regional Sales Breakdown",
-                "action_type": "query",
-                "payload": "Breakdown transactions and sales by region"
-            })
-        else:
-            follow_ups.append({
-                "label": "⚡ Check Pending Receivables & Reminders",
-                "action_type": "query",
-                "payload": "What pending or overdue invoices are awaiting payment?"
-            })
-            follow_ups.append({
-                "label": "🛡️ Inspect Churn Risk on Subscriptions",
-                "action_type": "query",
-                "payload": "Analyze subscription churn risk across tiers"
-            })
-            follow_ups.append({
-                "label": "🔮 90-Day Forward Runway",
-                "action_type": "query",
-                "payload": "Predict my 90-day cash flow runway and forward sales"
-            })
+            follow_ups = follow_ups[:3]
 
         return {
             "finalReport": final_markdown,

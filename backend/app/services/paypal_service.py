@@ -68,6 +68,8 @@ class PayPalService:
 
         self.profile_file = os.path.join(os.path.dirname(__file__), "..", "..", ".business_profile.json")
         self.business_profile = self._load_profile()
+        self.merchant_context_cache: str = ""
+        self.merchant_context_time: float = 0.0
 
     def _init_toolkit_client(self):
         """Initializes PayPalClient instance based on paypal-agent-toolkit."""
@@ -115,6 +117,8 @@ class PayPalService:
     def save_profile(self, profile: Dict[str, Any]) -> Dict[str, Any]:
         cleaned = {k: v for k, v in profile.items() if v is not None}
         self.business_profile = {**self.business_profile, **cleaned}
+        self.merchant_context_cache = ""
+        self.merchant_context_time = 0.0
         try:
             with open(self.profile_file, "w") as f:
                 json.dump(self.business_profile, f, indent=2)
@@ -125,6 +129,89 @@ class PayPalService:
     def get_profile(self) -> Dict[str, Any]:
         return self.business_profile
 
+    async def get_merchant_context(self, force_refresh: bool = False) -> str:
+        """
+        Dynamically initializes and compiles the merchant's business operating profile
+        from the linked PayPal account (registered billing plans, live invoices, pending
+        receivables, customer disputes, and geographic transaction ledger).
+        Provides full situational awareness to Agent Warren and the LLM.
+        """
+        if not force_refresh and self.merchant_context_cache and (time.time() - self.merchant_context_time < 60):
+            return self.merchant_context_cache
+
+        try:
+            plans, invoices, disputes, txns = await asyncio.gather(
+                self.fetch_live_plans(),
+                self.fetch_live_invoices(),
+                self.fetch_live_disputes(),
+                self.fetch_live_transactions(days_back=90),
+                return_exceptions=True
+            )
+            plans = plans if isinstance(plans, list) else []
+            invoices = invoices if isinstance(invoices, list) else []
+            disputes = disputes if isinstance(disputes, list) else []
+            txns = txns if isinstance(txns, list) else []
+
+            paid_inv = [i for i in invoices if i.get("status") in ["PAID", "MARKED_AS_PAID"]]
+            unpaid_inv = [i for i in invoices if i.get("status") in ["UNPAID", "SENT", "SCHEDULED"]]
+            overdue_inv = [i for i in invoices if i.get("status") == "OVERDUE"]
+            draft_inv = [i for i in invoices if i.get("status") == "DRAFT"]
+
+            paid_sum = sum(float(i.get("amount", {}).get("value", 0)) for i in paid_inv)
+            unpaid_sum = sum(float(i.get("amount", {}).get("value", 0)) for i in unpaid_inv)
+            overdue_sum = sum(float(i.get("amount", {}).get("value", 0)) for i in overdue_inv)
+            draft_sum = sum(float(i.get("amount", {}).get("value", 0)) for i in draft_inv)
+
+            outstanding_lines = []
+            for inv in (overdue_inv + unpaid_inv + draft_inv)[:10]:
+                recips = inv.get("primary_recipients", [])
+                b_info = recips[0].get("billing_info", {}) if recips else {}
+                c_name = b_info.get("name", {}).get("full_name") or b_info.get("name", {}).get("given_name", "Customer")
+                c_email = b_info.get("email_address", "")
+                amt = float(inv.get("amount", {}).get("value", 0))
+                st = inv.get("status", "UNPAID")
+                inv_id = inv.get("id", "")
+                inv_num = inv.get("detail", {}).get("invoice_number", "")
+                outstanding_lines.append(f"  • {c_name} ({c_email}): ${amt:.2f} [{st}] (Invoice #{inv_num or inv_id})")
+
+            outstanding_str = "\n".join(outstanding_lines) if outstanding_lines else "  • No outstanding customer receivables."
+
+            plan_summaries = []
+            for p in plans:
+                p_name = p.get("name", "Plan")
+                fp = ""
+                for cycle in p.get("billing_cycles") or []:
+                    val = cycle.get("pricing_scheme", {}).get("fixed_price", {}).get("value")
+                    if val:
+                        fp = f"${float(val):.2f}/mo"
+                        break
+                plan_summaries.append(f"{p_name} ({fp or 'Recurring'})")
+            plans_str = ", ".join(plan_summaries) if plan_summaries else "No active subscription plans registered."
+
+            regions = set(t.region for t in txns if t.region)
+            regions_str = ", ".join(sorted(regions)) if regions else "Global"
+
+            context = (
+                f"CONFIRMED MERCHANT PROFILE & LIVE BUSINESS CONTEXT (from linked PayPal account):\n"
+                f"- Mode: PayPal {self.mode.upper()}\n"
+                f"- Primary Business Driver: {self.business_profile.get('primary_signal', 'invoices & subscriptions').upper()}\n"
+                f"- Registered Billing Plans ({len(plans)} plans): {plans_str}\n"
+                f"- Invoicing Portfolio ({len(invoices)} invoices):\n"
+                f"  * Paid / Settled Volume: ${paid_sum:.2f} across {len(paid_inv)} invoices\n"
+                f"  * Pending Receivables: ${unpaid_sum:.2f} across {len(unpaid_inv)} invoices\n"
+                f"  * Overdue Receivables: ${overdue_sum:.2f} across {len(overdue_inv)} invoices\n"
+                f"  * Draft Invoices: ${draft_sum:.2f} across {len(draft_inv)} invoices\n"
+                f"- Outstanding Customer Receivables on File:\n{outstanding_str}\n"
+                f"- Customer Disputes: {len(disputes)} open claims (Account health: {'Action Required' if disputes else 'Clean & Protected'})\n"
+                f"- Global Transaction Reach: {len(txns)} transactions across {regions_str}\n"
+            )
+            self.merchant_context_cache = context
+            self.merchant_context_time = time.time()
+            return context
+        except Exception as e:
+            print(f"[PayPalService] Error building dynamic merchant context: {e}")
+            return self.merchant_context_cache or "CONFIRMED MERCHANT PROFILE: PayPal Account Connected"
+
     def update_credentials(self, client_id: str, client_secret: str, mode: str = "sandbox"):
         self.client_id = client_id
         self.client_secret = client_secret
@@ -134,6 +221,8 @@ class PayPalService:
         self.token_expiry = 0.0
         self._plan_details_cache.clear()
         self._plan_cache_time = 0.0
+        self.merchant_context_cache = ""
+        self.merchant_context_time = 0.0
         self._init_toolkit_client()
 
     async def get_access_token(self) -> Optional[str]:
@@ -353,6 +442,98 @@ class PayPalService:
                     json={"send_to_recipient": True}
                 )
                 return {"success": res.status_code in [200, 202, 204], "status_code": res.status_code}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def create_invoice(
+        self,
+        customer_name: str,
+        customer_email: str,
+        item_name: str,
+        amount: float,
+        note: Optional[str] = None,
+        days_ago: int = 0,
+        send_to_recipient: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Dynamically generates, drafts, and dispatches a live PayPal invoice
+        """
+        token = await self.get_access_token()
+        if not token:
+            return {"success": False, "error": "No PayPal access token"}
+
+        now = datetime.now(timezone.utc)
+        inv_date = (now - timedelta(days=days_ago)).strftime("%Y-%m-%d")
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+        name_parts = customer_name.strip().split()
+        given_name = name_parts[0] if name_parts else "Valued"
+        surname = " ".join(name_parts[1:]) if len(name_parts) > 1 else "Customer"
+
+        inv_note = note or f"Invoice for {item_name}. Thank you for your business!"
+
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                num_res = await client.post(
+                    f"{self.base_url}/v2/invoicing/generate-next-invoice-number",
+                    headers=headers
+                )
+                inv_num = num_res.json().get("invoice_number", f"INV-{int(time.time())}")
+
+                payload = {
+                    "detail": {
+                        "invoice_number": inv_num,
+                        "invoice_date": inv_date,
+                        "currency_code": "USD",
+                        "note": inv_note
+                    },
+                    "primary_recipients": [
+                        {
+                            "billing_info": {
+                                "name": {"given_name": given_name, "surname": surname},
+                                "email_address": customer_email.strip()
+                            }
+                        }
+                    ],
+                    "items": [
+                        {
+                            "name": item_name.strip(),
+                            "quantity": "1",
+                            "unit_amount": {"currency_code": "USD", "value": f"{amount:.2f}"}
+                        }
+                    ]
+                }
+                draft_res = await client.post(
+                    f"{self.base_url}/v2/invoicing/invoices",
+                    headers=headers,
+                    json=payload
+                )
+
+                if draft_res.status_code not in [200, 201]:
+                    return {"success": False, "error": draft_res.text, "status_code": draft_res.status_code}
+
+                data = draft_res.json()
+                invoice_id = data.get("href", "").split("/")[-1]
+                send_status = None
+                if send_to_recipient:
+                    send_res = await client.post(
+                        f"{self.base_url}/v2/invoicing/invoices/{invoice_id}/send",
+                        headers=headers,
+                        json={"send_to_recipient": True}
+                    )
+                    send_status = send_res.status_code
+                return {
+                    "success": True,
+                    "invoice_id": invoice_id,
+                    "invoice_number": inv_num,
+                    "customer_name": f"{given_name} {surname}",
+                    "customer_email": customer_email,
+                    "amount": amount,
+                    "currency": "USD",
+                    "status": "SENT" if send_to_recipient else "DRAFT",
+                    "invoice_date": inv_date,
+                    "send_status": send_status
+                }
         except Exception as e:
             return {"success": False, "error": str(e)}
 

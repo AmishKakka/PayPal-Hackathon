@@ -184,6 +184,29 @@ async def send_invoice_endpoint(invoice_id: str, req: Optional[InvoiceReminderRe
     result = await paypal_service.send_draft_invoice(invoice_id, note=note)
     return result
 
+class CreateInvoiceRequest(BaseModel):
+    customer_name: str
+    customer_email: str
+    item_name: str
+    amount: float
+    note: Optional[str] = None
+    days_ago: Optional[int] = 0
+    send_to_recipient: Optional[bool] = True
+
+@app.post("/api/invoices/create")
+async def create_invoice_endpoint(req: CreateInvoiceRequest):
+    """Dynamically creates, drafts, and dispatches invoice using PayPal"""
+    result = await paypal_service.create_invoice(
+        customer_name=req.customer_name,
+        customer_email=req.customer_email,
+        item_name=req.item_name,
+        amount=req.amount,
+        note=req.note,
+        days_ago=req.days_ago or 0,
+        send_to_recipient=req.send_to_recipient if req.send_to_recipient is not None else True
+    )
+    return result
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

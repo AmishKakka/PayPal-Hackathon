@@ -2,7 +2,7 @@
 
 Uno is an autonomous financial intelligence and execution copilot built for PayPal merchants. Instead of navigating fragmented admin portals or exporting static spreadsheets, merchants interact directly with their live PayPal financial ecosystem in natural language.
 
-Uno integrates **PayPal Subscriptions v1, Invoicing v2, Customer Disputes v1, and Reporting v1** with **Google Gemini 2.5 Flash**, **Jev Routing**, **AG Charts**, and **AG Grid**.
+Uno integrates **PayPal APIs** with **Google Gemini 2.5 Flash**, **Jev Routing**, **AG Charts**, and **AG Grid**.
 
 ---
 
@@ -12,12 +12,12 @@ Uno integrates **PayPal Subscriptions v1, Invoicing v2, Customer Disputes v1, an
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
 │                                       UNO PLATFORM                                     │
 ├──────────────────────────┬──────────────────────────┬──────────────────────────────────┤
-│         OBSERVE          │         PREDICT          │               ACT                │
-│  • Account Discovery     │  • 30/90-Day Cash Runway │  • 1-Click Invoice Reminders     │
-│  • Settlement Ledger     │  • Subscriber Churn Risk │  • Conversational Invoice Create │
-│  • Executive Briefing    │  • Tier Growth Forecast  │  • Draft Invoice Publishing      │
-│  • Audio Voice Briefing  │  • MRR Expansion Rate    │  • Dynamic Follow-Up Generation  │
-│  • Financial Glossary    │                          │                                  │
+│         OBSERVE          │           ACT            │             PREDICT              │
+│  • Account Discovery     │  • 1-Click Reminders     │  • 30/90-Day Cash Runway         │
+│  • Settlement Ledger     │  • Dynamic Invoicing     │  • Subscriber Churn Risk         │
+│  • Executive Briefing    │  • Draft Publishing      │  • Tier Growth Forecast          │
+│  • Audio Voice Briefing  │  • Autonomous Actions    │  • MRR Expansion Rate            │
+│  • Financial Glossary    │  • LLM Follow-Ups        │                                  │
 └──────────────────────────┴──────────────────────────┴──────────────────────────────────┘
 ```
 
@@ -27,16 +27,16 @@ Uno integrates **PayPal Subscriptions v1, Invoicing v2, Customer Disputes v1, an
 - **Settlement Ledger (AG Grid)**: Real-time table rendering multi-status customer transactions with 1-click live synchronization and inline payment reminder triggers.
 - **Business & Financial Glossary**: 70:30 workspace hosting an interactive reference glossary with category filters and accordion dropdowns for key financial formulas, benchmarks, and definitions (MRR, ARR, TTM, Gross/Operating Margins, DSO, Runway, NDR, and Churn).
 
-### 2. Predict: 90-Day Runway & Subscription Health
-- **Revenue & MRR Horizon (AG Charts)**: Synthesizes historical invoice velocity with recurring subscription run-rates into a forward 90-day predictive trajectory.
-- **Forward Metric Projections**: Dedicated runway models tracking 30-day forward cash, 90-day forecast, and MRR expansion rate.
-- **Subscription Retention & Churn**: Full-width health monitor evaluating churn probability, exposed MRR, specific risk drivers (e.g. soft card declines), and concrete recovery actions across all active billing tiers.
-
-### 3. Act: Autonomous Agent Warren
+### 2. Act: Autonomous Agent Warren
 - **Conversational Invoicing**: Generates and registers official PayPal invoices from natural language prompts (*"Bill Maya Lin $340 for Enterprise Integration"*) via PayPal Invoicing API v2.
 - **1-Click Overdue Reminders**: Identifies unpaid and overdue customer receivables and dispatches automated payment reminders via `POST /v2/invoicing/invoices/{id}/remind`.
 - **Dynamic Chart Synthesis**: Renders interactive AG Charts directly in the conversation stream based on live ledger evidence.
 - **LLM-Grounded Follow-Ups**: Dynamically synthesizes next-step actions referencing real debtor accounts, outstanding balances, and plan tiers using Gemini 2.5 Flash.
+
+### 3. Predict: 90-Day Runway & Subscription Health
+- **Revenue & MRR Horizon (AG Charts)**: Synthesizes historical invoice velocity with recurring subscription run-rates into a forward 90-day predictive trajectory.
+- **Forward Metric Projections**: Dedicated runway models tracking 30-day forward cash, 90-day forecast, and MRR expansion rate.
+- **Subscription Retention & Churn**: Full-width health monitor evaluating churn probability, exposed MRR, specific risk drivers (e.g. soft card declines), and concrete recovery actions across all active billing tiers.
 
 ---
 

@@ -11,17 +11,17 @@ import {
 import { AGChartWrapper } from "@/components/charts/AGChartWrapper";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { GlossarySidebar } from "@/components/chat/GlossarySidebar";
+import { NeuralNetworkIcon } from "@/components/icons/NeuralNetworkIcon";
 import { 
-  Bot, 
   User, 
   Send, 
   Sparkles, 
   RefreshCw, 
-  Layers,
-  Pin,
-  Check,
-  Zap,
-  ArrowRight
+  Layers, 
+  Pin, 
+  Check, 
+  Zap, 
+  ArrowRight 
 } from "lucide-react";
 
 interface Message {
@@ -83,7 +83,7 @@ function ChatContent() {
       const chartToSave: ChartConfig = {
         ...chart,
         id: uniqueId,
-        title: chart.title || "Custom AI Synthesized Chart"
+        title: chart.title
       };
 
       const exists = saved.some(c => c.id === uniqueId || c.id === chart.id || (c.title === chartToSave.title && c.type === chartToSave.type));
@@ -176,7 +176,7 @@ function ChatContent() {
                 {/* Assistant Avatar */}
                 {msg.sender === "assistant" && (
                   <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#E5F3FF] border border-[#008CFF]/30 text-[#002991] mt-1 shadow-xs">
-                    <Bot className="h-4 w-4" />
+                    <NeuralNetworkIcon className="h-4 w-4" />
                   </div>
                 )}
 
@@ -294,7 +294,7 @@ function ChatContent() {
             {loading && (
               <div className="flex gap-3.5 justify-start items-center">
                 <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#E5F3FF] border border-[#008CFF]/30 text-[#002991]">
-                  <Bot className="h-4 w-4 animate-pulse" />
+                  <NeuralNetworkIcon className="h-4 w-4 animate-pulse" />
                 </div>
                 <div className="rounded-2xl bg-white border border-[#E2E8F0] px-4 py-3 text-xs text-[#4A5568] flex items-center gap-2 shadow-xs">
                   <span className="flex h-2 w-2 rounded-full bg-[#008CFF] animate-ping"></span>

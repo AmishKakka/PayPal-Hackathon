@@ -1,0 +1,152 @@
+--------------------------------------------------------------------------------
+CATEGORY 1: REVENUE & TOP-LINE PERFORMANCE
+--------------------------------------------------------------------------------
+
+[Gross Revenue (GMV - Gross Merchandise Volume)]
+- Definition: The total dollar volume of products or services sold before deducting any refunds, transaction fees, chargebacks, discounts, or processing costs.
+- Formula: Sum of all completed sales transactions
+- Why it matters: Measures top-line sales traction and platform scale, but doesn't reflect actual take-home cash.
+
+[Net Revenue]
+- Definition: The actual recognized revenue retained by the business after deducting customer refunds, chargeback losses, promotional discounts, and payment allowances.
+- Formula: Gross Revenue - (Refunds + Returns + Chargebacks + Discounts)
+- Why it matters: Represents the true earnings base available to cover cost of goods and operational overhead.
+
+[MRR (Monthly Recurring Revenue)]
+- Definition: The normalized predictable subscription revenue generated every 30 days from active billing plans and tiered contracts.
+- Formula: Total Active Subscribers × Average Revenue Per User (ARPU)
+- Why it matters: The single most vital metric for recurring subscription businesses. Predicts forward baseline cash flow and valuation multiples.
+
+[ARR (Annual Recurring Revenue)]
+- Definition: The annualized run-rate of recurring subscription revenue.
+- Formula: MRR × 12
+- Why it matters: Used by investors and lenders to evaluate enterprise scale, contract longevity, and forward year predictability.
+
+[TTM Revenue (Trailing Twelve Months)]
+- Definition: Financial performance over the preceding 12 consecutive calendar months up to the current date.
+- Formula: Sum of Net Revenue over the past 12 consecutive months
+- Why it matters: Smooths out seasonal spikes (e.g., holiday rushes or quiet summer quarters), providing a normalized view of business velocity.
+
+[ARPU / ARPA (Average Revenue Per User / Account)]
+- Definition: The average revenue generated per paying user or client account during a specific time period.
+- Formula: Total Revenue in Period / Total Active Paying Accounts in Period
+- Why it matters: Indicates whether growth is coming from higher contract values or sheer volume, helping guide pricing and upselling strategies.
+
+
+--------------------------------------------------------------------------------
+CATEGORY 2: PROFITABILITY & OPERATING MARGINS
+--------------------------------------------------------------------------------
+
+[Gross Margin (%)]
+- Definition: The percentage of revenue remaining after subtracting direct Cost of Goods Sold (COGS), server hosting, and direct payment processing fees.
+- Formula: ((Net Revenue - COGS) / Net Revenue) × 100
+- Why it matters: Measures product delivery efficiency. Software businesses typically target 70-85%+, while e-commerce/retail targets 40-60%.
+
+[Operating Margin (EBIT Margin)]
+- Definition: The proportion of revenue remaining after covering all operational operating expenses (R&D, sales, marketing, rent, payroll) before interest and taxes.
+- Formula: (Operating Income / Net Revenue) × 100
+- Why it matters: Demonstrates core operational leverage and whether the business model can scale sustainably without spiraling operational expenses.
+
+[Net Profit Margin (%)]
+- Definition: The bottom-line percentage of revenue retained as clear profit after deducting ALL expenses, operating costs, debt interest, taxes, and depreciation.
+- Formula: (Net Income / Net Revenue) × 100
+- Why it matters: The ultimate metric of business solvency and bottom-line capital creation.
+
+[Contribution Margin]
+- Definition: The dollar margin remaining per unit or transaction after deducting variable costs directly associated with that unit.
+- Formula: Unit Selling Price - Variable Unit Costs
+- Why it matters: Determines if selling additional volume contributes toward covering fixed monthly overhead.
+
+
+--------------------------------------------------------------------------------
+CATEGORY 3: CASH FLOW, RUNWAY & LIQUIDITY
+--------------------------------------------------------------------------------
+
+[Operating Cash Flow (OCF)]
+- Definition: The actual cash generated or consumed directly by core day-to-day business operations, excluding outside financing and capital asset investments.
+- Formula: Net Income + Non-Cash Expenses ± Changes in Working Capital
+- Why it matters: Profit on paper does not equal cash in the bank. OCF proves whether daily customer transactions fund the company.
+
+[Free Cash Flow (FCF)]
+- Definition: The cash a company produces through operations after subtracting expenditures for capital assets (CapEx).
+- Formula: Operating Cash Flow - Capital Expenditures (CapEx)
+- Why it matters: The cash left over to expand the business, pay dividends, repay debt, or weather unexpected economic shocks.
+
+[Cash Runway (Months)]
+- Definition: The estimated number of months a company can continue operating before its available liquid bank balances are exhausted at the current spend rate.
+- Formula: Current Liquid Cash Balance / Monthly Net Burn Rate
+- Why it matters: Critical survival gauge for growth-stage businesses, informing when to raise capital or cut discretionary costs.
+
+[Burn Rate (Gross vs. Net)]
+- Definition: 
+  * Gross Burn: Total monthly cash outlays regardless of incoming revenue.
+  * Net Burn: Actual cash loss per month (Cash Outflows - Cash Inflows).
+- Why it matters: Direct driver of runway. Net burn tells you how fast the bank account is depleting.
+
+[DSO (Days Sales Outstanding)]
+- Definition: The average number of days it takes for a company to collect payment from customers after a sale or invoice has been issued.
+- Formula: (Accounts Receivable / Total Credit Sales) × Number of Days
+- Why it matters: Lower DSO means faster cash collection. High DSO signals overdue receivables and payment collection bottlenecks.
+
+[Working Capital]
+- Definition: The difference between a company’s current operational assets and its current liabilities due within one year.
+- Formula: Current Assets - Current Liabilities
+- Why it matters: Measures short-term liquidity and ability to meet immediate payroll, supplier, and inventory obligations.
+
+
+--------------------------------------------------------------------------------
+CATEGORY 4: SUBSCRIPTION RETENTION & CUSTOMER UNIT ECONOMICS
+--------------------------------------------------------------------------------
+
+[Customer Churn Rate (%)]
+- Definition: The percentage of active subscribers or customers who cancel or do not renew their subscriptions over a given billing period.
+- Formula: (Subscribers Lost During Period / Total Subscribers at Start of Period) × 100
+- Why it matters: Churn is the leaky bucket of subscription models. High churn requires massive new acquisition spending just to keep revenue flat.
+
+[Revenue Churn (Gross vs. Net)]
+- Definition: 
+  * Gross Revenue Churn: The percentage of MRR lost strictly due to cancellations and downgrades.
+  * Net Revenue Churn: Revenue lost from churn minus expansion revenue gained from existing customer upgrades.
+- Why it matters: Negative net revenue churn indicates that existing cohorts expand faster than cancellations.
+
+[LTV (Customer Lifetime Value)]
+- Definition: The total estimated gross profit or revenue a single customer relationship will generate throughout their entire engagement with the business.
+- Formula: (Average Revenue Per User × Gross Margin %) / Customer Churn Rate
+- Why it matters: Sets the ceiling for how much you can afford to spend on marketing and customer acquisition.
+
+[CAC (Customer Acquisition Cost)]
+- Definition: The total sales, advertising, and marketing cost required to win a single new paying customer.
+- Formula: Total Sales & Marketing Spend / Number of New Customers Acquired
+- Why it matters: Must be balanced against LTV to prevent growth from burning through cash reserves.
+
+[LTV:CAC Ratio]
+- Definition: The ratio comparing the lifetime value of a customer to the cost of acquiring them.
+- Formula: LTV / CAC
+- Why it matters: The golden rule of unit economics. 
+  * < 1.0x: Losing money on every acquired customer
+  * 3.0x: Healthy benchmark for sustainable growth
+  * > 5.0x: Potential under-investment in marketing/sales expansion
+
+[NDR / NRR (Net Dollar Retention)]
+- Definition: The percentage of recurring revenue retained from existing customers over a period (typically 12 months), factoring in upgrades, cross-sells, downgrades, and churn.
+- Formula: ((Starting MRR + Expansions - Contractions - Churn) / Starting MRR) × 100
+- Why it matters: Elite SaaS companies achieve 110-130%+, meaning the business grows organically even with zero new customer acquisition.
+
+
+--------------------------------------------------------------------------------
+CATEGORY 5: PAYMENTS, DISPUTES & RISK MANAGEMENT
+--------------------------------------------------------------------------------
+
+[Dispute & Chargeback Ratio]
+- Definition: The percentage of customer transactions contested as fraudulent, unauthorized, or disputed through PayPal / card networks.
+- Formula: (Total Disputed Transactions / Total Completed Transactions) × 100
+- Why it matters: PayPal and payment networks require maintaining this below 1.0% (and ideally < 0.5%). Breaching limits leads to rolling reserves, account freezes, or higher processing fees.
+
+[Receivables at Risk]
+- Definition: Total dollar value of outstanding invoices that are overdue, aging past 30-60 days, or tied to customers exhibiting payment failures.
+- Why it matters: Directly threatens cash forecasting accuracy; automated 1-click reminders help recover this capital.
+
+[Blended Processing Fee Rate]
+- Definition: The effective percentage of revenue deducted by payment processors and merchant acquiring gateways across all transactions.
+- Formula: (Total Payment Fees Paid / Total Gross Processing Volume) × 100
+- Why it matters: Optimizing routing, international currency fees, and domestic rates directly improves gross margins.

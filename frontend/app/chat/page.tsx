@@ -10,6 +10,7 @@ import {
 } from "@/lib/api";
 import { AGChartWrapper } from "@/components/charts/AGChartWrapper";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
+import { GlossarySidebar } from "@/components/chat/GlossarySidebar";
 import { 
   Bot, 
   User, 
@@ -159,194 +160,199 @@ function ChatContent() {
   }, [initialQuery]);
 
   return (
-    <div className="max-w-[1440px] mx-auto px-6 sm:px-10 py-6 h-[calc(100vh-5rem)] flex flex-col justify-between">
+    <div className="w-full max-w-[1920px] mx-auto px-4 sm:px-6 lg:px-8 py-3.5 h-[calc(100vh-5.5rem)] overflow-hidden">
+      
+      {/* 70:30 Layout Split */}
+      <div className="grid grid-cols-1 lg:grid-cols-10 gap-6 h-full w-full items-start">
+        <div className="lg:col-span-7 h-full flex flex-col justify-between overflow-hidden">
 
-      {/* Message Thread */}
-      <div className="flex-1 overflow-y-auto space-y-6 pr-2">
-        {messages.map((msg) => (
-          <div
-            key={msg.id}
-            className={`flex gap-3.5 ${msg.sender === "user" ? "justify-end" : "justify-start"}`}
-          >
-            {/* Assistant Avatar */}
-            {msg.sender === "assistant" && (
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#E5F3FF] border border-[#008CFF]/30 text-[#002991] mt-1 shadow-xs">
-                <Bot className="h-4 w-4" />
-              </div>
-            )}
+          {/* Message Thread */}
+          <div className="flex-1 overflow-y-auto space-y-6 pr-2 scrollbar-thin">
+            {messages.map((msg) => (
+              <div
+                key={msg.id}
+                className={`flex gap-3.5 ${msg.sender === "user" ? "justify-end" : "justify-start"}`}
+              >
+                {/* Assistant Avatar */}
+                {msg.sender === "assistant" && (
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#E5F3FF] border border-[#008CFF]/30 text-[#002991] mt-1 shadow-xs">
+                    <Bot className="h-4 w-4" />
+                  </div>
+                )}
 
-            {/* Bubble */}
-            <div
-              className={`max-w-[85%] sm:max-w-[78%] rounded-2xl p-5 text-sm ${
-                msg.sender === "user"
-                  ? "bg-[#E5F3FF] border border-[#008CFF]/30 text-[#002991] font-medium shadow-xs ml-auto"
-                  : "bg-white border border-[#E2E8F0] text-[#000000] shadow-[0_2px_8px_rgba(0,41,145,0.04)]"
-              }`}
-            >
-              {/* Agent Trace Pills */}
-              {msg.agentTrace && msg.agentTrace.length > 0 && (
-                <div className="flex items-center gap-1.5 flex-wrap mb-3 pb-2.5 border-b border-[#E2E8F0]">
-                  <Layers className="h-3 w-3 text-[#008CFF]" />
-                  <span className="text-[10px] text-[#4A5568] font-semibold uppercase tracking-wider">Router:</span>
-                  {msg.agentTrace.map((trace, idx) => {
-                    const isAction = trace.includes("Action Executed") || trace.startsWith("⚡");
-                    return (
-                      <span 
-                        key={idx}
-                        className={`rounded-full px-2.5 py-0.5 text-[10px] font-medium border flex items-center gap-1 ${
-                          isAction 
-                            ? "bg-emerald-50 text-emerald-800 border-emerald-300 font-semibold shadow-2xs" 
-                            : "bg-[#F5F7FA] text-[#002991] border-[#E2E8F0]"
-                        }`}
-                      >
-                        {isAction && <Zap className="w-2.5 h-2.5 text-emerald-600 fill-emerald-600 shrink-0" />}
-                        <span>{trace}</span>
-                      </span>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* Text Body */}
-              <MarkdownRenderer content={msg.text} />
-
-              {/* Inline Embedded AG Chart (Scrollable Area to prevent cutoff) */}
-              {msg.chart && (
-                <div className="mt-4 pt-4 border-t border-[#E2E8F0]">
-                  <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                    <span className="text-xs font-semibold text-[#000000] flex items-center gap-1.5">
-                      <Sparkles className="h-3.5 w-3.5 text-[#008CFF]" />
-                      Synthesized Chart
-                    </span>
-                    <div className="flex items-center gap-2">
-                      {pinnedIds.includes(msg.chart.id) || pinnedIds.includes(`pinned-${msg.chart.id}`) ? (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 text-[11px] font-semibold border border-emerald-200">
-                          <Check className="w-3 h-3 text-emerald-600" />
-                          <span>Pinned to Quick View</span>
+                {/* Bubble */}
+                <div
+                  className={`max-w-[85%] sm:max-w-[78%] rounded-2xl p-5 text-sm ${
+                    msg.sender === "user"
+                      ? "bg-[#E5F3FF] border border-[#008CFF]/30 text-[#002991] font-medium shadow-xs ml-auto"
+                      : "bg-white border border-[#E2E8F0] text-[#000000] shadow-[0_2px_8px_rgba(0,41,145,0.04)]"
+                  }`}
+                >
+                  {msg.agentTrace && msg.agentTrace.length > 0 && (
+                    <div className="flex items-center gap-1.5 flex-wrap mb-3 pb-2.5 border-b border-[#E2E8F0]">
+                      <Layers className="h-3 w-3 text-[#008CFF]" />
+                      <span className="text-[10px] text-[#4A5568] font-semibold uppercase tracking-wider">Router:</span>
+                      {msg.agentTrace.map((trace, idx) => {
+                        const isAction = trace.includes("Action Executed") || trace.startsWith("⚡");
+                        return (
+                          <span 
+                            key={idx}
+                            className={`rounded-full px-2.5 py-0.5 text-[10px] font-medium border flex items-center gap-1 ${
+                              isAction 
+                                ? "bg-emerald-50 text-emerald-800 border-emerald-300 font-semibold shadow-2xs" 
+                                : "bg-[#F5F7FA] text-[#002991] border-[#E2E8F0]"
+                            }`}
+                          >
+                            {isAction && <Zap className="w-2.5 h-2.5 text-emerald-600 fill-emerald-600 shrink-0" />}
+                            <span>{trace}</span>
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <MarkdownRenderer content={msg.text} />
+                  {msg.chart && (
+                    <div className="mt-4 pt-4 border-t border-[#E2E8F0]">
+                      <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                        <span className="text-xs font-semibold text-[#000000] flex items-center gap-1.5">
+                          <Sparkles className="h-3.5 w-3.5 text-[#008CFF]" />
+                          Synthesized Chart
                         </span>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => handlePinChart(msg.chart!)}
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white hover:bg-[#F5F7FA] text-[#002991] hover:text-[#008CFF] border border-[#E2E8F0] hover:border-[#008CFF]/40 text-[11px] font-semibold transition-all shadow-xs cursor-pointer"
-                          title="Pin this chart to your Quick View dashboard"
-                        >
-                          <Pin className="w-3 h-3 text-[#008CFF]" />
-                          <span>Pin to Quick View</span>
-                        </button>
-                      )}
-                      <span className="text-[10px] text-[#4A5568]">
-                        Live PayPal Sandbox
-                      </span>
+                        <div className="flex items-center gap-2">
+                          {pinnedIds.includes(msg.chart.id) || pinnedIds.includes(`pinned-${msg.chart.id}`) ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 text-[11px] font-semibold border border-emerald-200">
+                              <Check className="w-3 h-3 text-emerald-600" />
+                              <span>Pinned to Quick View</span>
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handlePinChart(msg.chart!)}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white hover:bg-[#F5F7FA] text-[#002991] hover:text-[#008CFF] border border-[#E2E8F0] hover:border-[#008CFF]/40 text-[11px] font-semibold transition-all shadow-xs cursor-pointer"
+                              title="Pin this chart to your Quick View dashboard"
+                            >
+                              <Pin className="w-3 h-3 text-[#008CFF]" />
+                              <span>Pin to Quick View</span>
+                            </button>
+                          )}
+                          <span className="text-[10px] text-[#4A5568]">
+                            Live PayPal Sandbox
+                          </span>
+                        </div>
+                      </div>
+                      <div className="w-full overflow-x-auto overflow-y-auto max-h-[460px] rounded-xl border border-[#E2E8F0] bg-[#F5F7FA]/40 p-4 scrollbar-thin">
+                        <div className="mb-2">
+                          <h4 className="text-sm font-semibold text-[#000000]">{msg.chart.title}</h4>
+                          {msg.chart.description && (
+                            <p className="text-xs text-[#4A5568] mt-0.5">{msg.chart.description}</p>
+                          )}
+                        </div>
+                        <div className="min-w-[480px]">
+                          <AGChartWrapper config={msg.chart} height={340} />
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                  <div className="w-full overflow-x-auto overflow-y-auto max-h-[460px] rounded-xl border border-[#E2E8F0] bg-[#F5F7FA]/40 p-4 scrollbar-thin">
-                    <div className="mb-2">
-                      <h4 className="text-sm font-semibold text-[#000000]">{msg.chart.title}</h4>
-                      {msg.chart.description && (
-                        <p className="text-xs text-[#4A5568] mt-0.5">{msg.chart.description}</p>
-                      )}
+                  )}
+
+                  {msg.followUpSuggestions && msg.followUpSuggestions.length > 0 && (
+                    <div className="mt-4 pt-3.5 border-t border-[#E2E8F0]">
+                      <div className="text-[11px] font-semibold text-[#4A5568] uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
+                        <Zap className="h-3.5 w-3.5 text-amber-500 fill-amber-500" />
+                        <span>Suggested Agent Actions</span>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {msg.followUpSuggestions.map((action, i) => (
+                          <button
+                            key={i}
+                            type="button"
+                            disabled={loading}
+                            onClick={() => handleSend(action.payload)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#F8FAFC] hover:bg-[#E5F3FF] border border-[#CBD5E1] hover:border-[#008CFF] text-xs font-medium text-[#002991] transition-all shadow-2xs hover:shadow-xs cursor-pointer group disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <ArrowRight className="h-3 w-3 text-[#008CFF] group-hover:translate-x-0.5 transition-transform shrink-0" />
+                            <span>{action.label}</span>
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                    <div className="min-w-[480px]">
-                      <AGChartWrapper config={msg.chart} height={340} />
-                    </div>
+                  )}
+
+                  <div className="mt-2 text-[10px] text-[#94A3B8] text-right">
+                    {msg.timestamp}
                   </div>
                 </div>
-              )}
 
-              {/* 1-Click Agentic Actions & Follow-up Suggestions */}
-              {msg.followUpSuggestions && msg.followUpSuggestions.length > 0 && (
-                <div className="mt-4 pt-3.5 border-t border-[#E2E8F0]">
-                  <div className="text-[11px] font-semibold text-[#4A5568] uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
-                    <Zap className="h-3.5 w-3.5 text-amber-500 fill-amber-500" />
-                    <span>Suggested Agent Actions</span>
+                {/* User Avatar */}
+                {msg.sender === "user" && (
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#F5F7FA] border border-[#E2E8F0] text-[#4A5568] mt-1">
+                    <User className="h-4 w-4" />
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    {msg.followUpSuggestions.map((action, i) => (
-                      <button
-                        key={i}
-                        type="button"
-                        disabled={loading}
-                        onClick={() => handleSend(action.payload)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#F8FAFC] hover:bg-[#E5F3FF] border border-[#CBD5E1] hover:border-[#008CFF] text-xs font-medium text-[#002991] transition-all shadow-2xs hover:shadow-xs cursor-pointer group disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        <ArrowRight className="h-3 w-3 text-[#008CFF] group-hover:translate-x-0.5 transition-transform shrink-0" />
-                        <span>{action.label}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div className="mt-2 text-[10px] text-[#94A3B8] text-right">
-                {msg.timestamp}
+                )}
               </div>
-            </div>
+            ))}
 
-            {/* User Avatar */}
-            {msg.sender === "user" && (
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#F5F7FA] border border-[#E2E8F0] text-[#4A5568] mt-1">
-                <User className="h-4 w-4" />
+            {loading && (
+              <div className="flex gap-3.5 justify-start items-center">
+                <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#E5F3FF] border border-[#008CFF]/30 text-[#002991]">
+                  <Bot className="h-4 w-4 animate-pulse" />
+                </div>
+                <div className="rounded-2xl bg-white border border-[#E2E8F0] px-4 py-3 text-xs text-[#4A5568] flex items-center gap-2 shadow-xs">
+                  <span className="flex h-2 w-2 rounded-full bg-[#008CFF] animate-ping"></span>
+                  <span>Agent Warren is analyzing PayPal records...</span>
+                </div>
               </div>
             )}
+
+            <div ref={messagesEndRef} />
           </div>
-        ))}
 
-        {loading && (
-          <div className="flex gap-3.5 justify-start items-center">
-            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#E5F3FF] border border-[#008CFF]/30 text-[#002991]">
-              <Bot className="h-4 w-4 animate-pulse" />
-            </div>
-            <div className="rounded-2xl bg-white border border-[#E2E8F0] px-4 py-3 text-xs text-[#4A5568] flex items-center gap-2 shadow-xs">
-              <span className="flex h-2 w-2 rounded-full bg-[#008CFF] animate-ping"></span>
-              <span>Agent Warren is analyzing PayPal records...</span>
+          {/* Input bar */}
+          <div className="pt-3 shrink-0">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleSend();
+              }}
+              className="relative flex items-center"
+            >
+              <input
+                type="text"
+                placeholder="Ask Agent Warren..."
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                disabled={loading}
+                className="w-full rounded-2xl border border-[#E2E8F0] bg-white pl-5 pr-14 py-3.5 text-sm text-[#000000] placeholder-[#94A3B8] focus:border-[#008CFF] focus:outline-none focus:ring-1 focus:ring-[#008CFF] transition-all shadow-xs"
+              />
+
+              <button
+                type="submit"
+                disabled={!input.trim() || loading}
+                className="absolute right-3.5 p-1.5 text-[#008CFF] hover:text-[#002991] disabled:text-[#CBD5E1] disabled:cursor-not-allowed transition-colors bg-transparent border-0 cursor-pointer focus:outline-none"
+                title="Send query"
+              >
+                <Send className="h-5 w-5 fill-current" />
+              </button>
+            </form>
+
+            {/* Reset button at the bottom of the text input box */}
+            <div className="flex justify-end pt-2 pr-1">
+              <button
+                type="button"
+                onClick={() => setMessages([messages[0]])}
+                className="flex items-center gap-1.5 text-xs text-[#4A5568] hover:text-[#000000] transition-colors cursor-pointer py-1 px-2.5 rounded-md hover:bg-[#F5F7FA] border border-[#E2E8F0] bg-white shadow-xs"
+                title="Reset conversation"
+              >
+                <RefreshCw className="h-3 w-3" />
+                <span>Reset</span>
+              </button>
             </div>
           </div>
-        )}
 
-        <div ref={messagesEndRef} />
-      </div>
-
-      {/* Input bar */}
-      <div className="pt-3">
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            handleSend();
-          }}
-          className="relative flex items-center"
-        >
-          <input
-            type="text"
-            placeholder="Ask Agent Warren..."
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            disabled={loading}
-            className="w-full rounded-2xl border border-[#E2E8F0] bg-white pl-5 pr-14 py-3.5 text-sm text-[#000000] placeholder-[#94A3B8] focus:border-[#008CFF] focus:outline-none focus:ring-1 focus:ring-[#008CFF] transition-all shadow-xs"
-          />
-
-          <button
-            type="submit"
-            disabled={!input.trim() || loading}
-            className="absolute right-3.5 p-1.5 text-[#008CFF] hover:text-[#002991] disabled:text-[#CBD5E1] disabled:cursor-not-allowed transition-colors bg-transparent border-0 cursor-pointer focus:outline-none"
-            title="Send query"
-          >
-            <Send className="h-5 w-5 fill-current" />
-          </button>
-        </form>
-
-        {/* Reset button at the bottom of the text input box */}
-        <div className="flex justify-end pt-2 pr-1">
-          <button
-            type="button"
-            onClick={() => setMessages([messages[0]])}
-            className="flex items-center gap-1.5 text-xs text-[#4A5568] hover:text-[#000000] transition-colors cursor-pointer py-1 px-2.5 rounded-md hover:bg-[#F5F7FA] border border-[#E2E8F0] bg-white shadow-xs"
-            title="Reset conversation"
-          >
-            <RefreshCw className="h-3 w-3" />
-            <span>Reset</span>
-          </button>
         </div>
+        <div className="lg:col-span-3 h-full overflow-hidden">
+          <GlossarySidebar />
+        </div>
+
       </div>
 
     </div>

@@ -4,12 +4,8 @@ import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ExecutiveBriefing } from "@/lib/api";
 import { 
-  Sparkles, 
-  ChevronDown, 
-  ChevronUp, 
-  CheckCircle2,
-  ArrowRight,
-  SunMedium
+  CheckCircle2, 
+  ArrowRight 
 } from "lucide-react";
 
 interface ExecutiveBriefingCardProps {
@@ -32,25 +28,10 @@ export function ExecutiveBriefingCard({ briefing }: ExecutiveBriefingCardProps) 
       <div className="h-1.5 w-full bg-gradient-to-r from-[#002991] via-[#008CFF] to-[#10b981]" />
 
       <div className="p-5 sm:p-6 space-y-5">
-        {/* Header Bar */}
-        <div className="flex items-start gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#002991] to-[#008CFF] text-white shadow-md shadow-[#008CFF]/20">
-            <SunMedium className="h-5 w-5 text-amber-300" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <h2 className="text-base font-bold text-[#000000] tracking-tight">
-                Morning Executive Briefing
-              </h2>
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#E5F3FF] text-[#002991] border border-[#008CFF]/30">
-                <Sparkles className="w-2.5 h-2.5 text-[#008CFF]" />
-                <span>AI Copilot</span>
-              </span>
-            </div>
-            <p className="text-[11px] text-[#4A5568] mt-0.5 font-medium">
-              {briefing.date} &bull; Live PayPal Sandbox Telemetry
-            </p>
-          </div>
+        <div className="pb-3 border-b border-[#E2E8F0]">
+          <h2 className="text-sm font-semibold text-[#000000] tracking-tight">
+            {briefing.date}
+          </h2>
         </div>
 
         {/* AI Headline Banner if available */}

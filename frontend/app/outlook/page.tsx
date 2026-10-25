@@ -60,10 +60,8 @@ export default function OutlookPage() {
   if (loading) {
     return (
       <div className="max-w-[1440px] mx-auto px-6 sm:px-10 py-24 flex flex-col items-center justify-center min-h-[480px]">
-        <div className="flex flex-col items-center gap-4">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#E5F3FF] border border-[#008CFF]/30 text-[#002991] shadow-sm">
-            <Loader2 className="h-6 w-6 animate-spin text-[#008CFF]" />
-          </div>
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="h-8 w-8 animate-spin text-[#008CFF]" />
           <div className="text-center">
             <h3 className="text-xl font-bold text-[#000000] tracking-tight">Loading....</h3>
             <p className="text-xs text-[#4A5568] mt-1 font-medium">Simulating 90-day predictive runway &amp; churn telemetry...</p>
@@ -101,7 +99,7 @@ export default function OutlookPage() {
                 <span className="text-xs uppercase tracking-wider font-semibold text-[#4A5568]">30-Day Forward Runway</span>
               </div>
               <div className="text-3xl font-semibold text-[#000000] font-mono-num tracking-tight">
-                {forecast ? formatCurrency(forecast.forecast_30d) : "$52,400.00"}
+                {forecast ? formatCurrency(forecast.forecast_30d) : "$0.00"}
               </div>
               <div className="mt-2 flex items-center justify-center gap-1.5 text-xs text-emerald-600 font-medium">
                 <ArrowUpRight className="h-3.5 w-3.5" />
@@ -113,13 +111,13 @@ export default function OutlookPage() {
             <div className="flex-1 rounded-2xl p-5 bg-white border border-[#E2E8F0] shadow-[0_2px_8px_rgba(0,41,145,0.04)] hover:shadow-[0_12px_24px_-6px_rgba(0,41,145,0.08)] hover:border-[#002991]/30 transition-all flex flex-col items-center justify-center text-center">
               <div className="flex items-center justify-center gap-1.5 text-[#4A5568] mb-1.5">
                 <TrendingUp className="h-4 w-4 text-[#002991]" />
-                <span className="text-xs uppercase tracking-wider font-semibold text-[#4A5568]">90-Day Q4 Projection</span>
+                <span className="text-xs uppercase tracking-wider font-semibold text-[#4A5568]">90-Day Forward Projection</span>
               </div>
               <div className="text-3xl font-semibold text-[#000000] font-mono-num tracking-tight">
-                {forecast ? formatCurrency(forecast.forecast_90d) : "$172,100.00"}
+                {forecast ? formatCurrency(forecast.forecast_90d) : "$0.00"}
               </div>
               <div className="mt-2 text-xs text-[#4A5568]">
-                One-time volume + recurring run-rate
+                Settled run-rate + pending receivables
               </div>
             </div>
 
@@ -133,7 +131,7 @@ export default function OutlookPage() {
                 {forecast ? formatPercent(forecast.projected_mrr_growth) : "0.0%"}
               </div>
               <div className="mt-2 text-xs text-[#4A5568]">
-                Projected forward expansion
+                Forward recurring run-rate velocity
               </div>
             </div>
 
@@ -142,85 +140,81 @@ export default function OutlookPage() {
         </div>
       </div>
 
-      {/* 2. BOTTOM HORIZONTAL SECTION: 30:70 ratio (Subscription churn on left, empty section on right) */}
-      <div className="grid grid-cols-1 lg:grid-cols-10 gap-6 w-full items-start">
-        
-        {/* Left Side (30%): Subscription Retention & Churn Vulnerability */}
-        <div className="lg:col-span-3 rounded-2xl p-6 bg-white border border-[#E2E8F0] shadow-[0_2px_8px_rgba(0,41,145,0.04)] space-y-4">
-          <div className="flex items-start justify-between gap-2 pb-2 border-b border-[#E2E8F0]">
-            <div>
-              <div className="flex items-center gap-2">
-                <ShieldAlert className="h-5 w-5 text-amber-500 shrink-0" />
-                <h3 className="text-base font-semibold text-[#000000] tracking-tight">Subscription Retention &amp; Churn</h3>
-              </div>
-              <p className="text-xs text-[#4A5568] mt-1">Live account standing &amp; vulnerability analysis</p>
+      {/* 2. BOTTOM HORIZONTAL SECTION: Full-Width Subscription Retention & Churn */}
+      <div className="w-full rounded-2xl p-6 bg-white border border-[#E2E8F0] shadow-[0_2px_8px_rgba(0,41,145,0.04)] space-y-5">
+        <div className="flex items-start justify-between gap-2 pb-3 border-b border-[#E2E8F0]">
+          <div>
+            <div className="flex items-center gap-2">
+              <ShieldAlert className="h-5 w-5 text-amber-500 shrink-0" />
+              <h3 className="text-base font-semibold text-[#000000] tracking-tight">Subscription Retention &amp; Churn</h3>
             </div>
-            <span className="text-[11px] text-amber-600 font-semibold px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 shrink-0">
-              {forecast?.at_risk_tiers ? `${forecast.at_risk_tiers.length} Tiers` : "0 Tiers"}
-            </span>
+            <p className="text-xs text-[#4A5568] mt-1">Live account standing &amp; vulnerability analysis across active billing tiers</p>
           </div>
+          <span className="text-[11px] text-amber-600 font-semibold px-2.5 py-1 rounded-full bg-amber-50 border border-amber-200 shrink-0">
+            {forecast?.at_risk_tiers ? `${forecast.at_risk_tiers.length} Tiers` : "0 Tiers"}
+          </span>
+        </div>
 
-          <div className="space-y-4 pt-1">
-            {(!forecast?.at_risk_tiers || forecast.at_risk_tiers.length === 0) && (
-              <div className="p-6 text-center text-xs text-[#4A5568] bg-[#F5F7FA] rounded-xl border border-[#E2E8F0]">
-                No subscription plan churn risk detected. All live accounts are in good standing.
+        <div>
+          {(!forecast?.at_risk_tiers || forecast.at_risk_tiers.length === 0) ? (
+            <div className="p-10 text-center bg-[#F8FAFC] rounded-xl border border-[#E2E8F0] space-y-3">
+              <ShieldAlert className="w-8 h-8 text-[#008CFF] mx-auto" />
+              <div>
+                <h4 className="text-sm font-semibold text-[#000000]">No Active Billing Plans</h4>
+                <p className="text-xs text-[#64748B] mt-1.5 leading-relaxed max-w-md mx-auto">
+                  This connected PayPal account has no active recurring subscription plans registered. All data reflects one-time payments and customer invoices.
+                </p>
               </div>
-            )}
-            {forecast?.at_risk_tiers.map((tier) => {
-              const isHighRisk = tier.churn_probability > 0.2;
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {forecast.at_risk_tiers.map((tier) => {
+                const isHighRisk = tier.churn_probability > 0.2;
 
-              return (
-                <div
-                  key={tier.tier_name}
-                  className="rounded-xl border border-[#E2E8F0] bg-[#F5F7FA] p-4 sm:p-5 hover:border-[#CBD5E1] transition-all"
-                >
-                  <div className="flex flex-col gap-2 mb-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <h4 className="text-sm font-semibold text-[#000000]">{tier.tier_name}</h4>
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-xs font-semibold border shrink-0 ${
-                          isHighRisk
-                            ? "bg-rose-50 text-rose-700 border-rose-200"
-                            : "bg-emerald-50 text-emerald-700 border-emerald-200"
-                        }`}
-                      >
-                        {(tier.churn_probability * 100).toFixed(0)}% Risk
-                      </span>
+                return (
+                  <div
+                    key={tier.tier_name}
+                    className="flex flex-col justify-between rounded-xl border border-[#E2E8F0] bg-[#F5F7FA] p-4 sm:p-5 hover:border-[#CBD5E1] transition-all"
+                  >
+                    <div>
+                      <div className="flex flex-col gap-2 mb-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <h4 className="text-sm font-semibold text-[#000000] truncate" title={tier.tier_name}>{tier.tier_name}</h4>
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-xs font-semibold border shrink-0 ${
+                              isHighRisk
+                                ? "bg-rose-50 text-rose-700 border-rose-200"
+                                : "bg-emerald-50 text-emerald-700 border-emerald-200"
+                            }`}
+                          >
+                            {(tier.churn_probability * 100).toFixed(0)}% Risk
+                          </span>
+                        </div>
+                        <span className="text-xs text-[#4A5568] block">
+                          {tier.active_subscribers} active members •{" "}
+                          <strong className="text-rose-600 font-mono-num">{formatCurrency(tier.monthly_revenue_at_risk)}</strong> MRR exposed
+                        </span>
+                      </div>
+
+                      <div className="mt-3 rounded-lg bg-white p-3 border border-[#E2E8F0] text-xs">
+                        <span className="text-[#4A5568] font-semibold block mb-1">Identified Factors:</span>
+                        <ul className="list-disc list-inside space-y-1 text-[#334155]">
+                          {tier.key_drivers.map((driver, idx) => (
+                            <li key={idx} className="leading-relaxed">{driver}</li>
+                          ))}
+                        </ul>
+                      </div>
                     </div>
-                    <span className="text-xs text-[#4A5568] block">
-                      {tier.active_subscribers} active members •{" "}
-                      <strong className="text-rose-600 font-mono-num">{formatCurrency(tier.monthly_revenue_at_risk)}</strong> MRR exposed
-                    </span>
-                  </div>
 
-                  <div className="mt-3 rounded-lg bg-white p-3 border border-[#E2E8F0] text-xs">
-                    <span className="text-[#4A5568] font-semibold block mb-1">Identified Factors:</span>
-                    <ul className="list-disc list-inside space-y-1 text-[#334155]">
-                      {tier.key_drivers.map((driver, idx) => (
-                        <li key={idx}>{driver}</li>
-                      ))}
-                    </ul>
-                    <div className="mt-2 pt-2 border-t border-[#E2E8F0] text-[#002991] font-medium">
-                      Recommendation: {tier.recommended_action}
+                    <div className="mt-3 rounded-lg bg-white p-3 border border-[#E2E8F0] text-xs text-[#002991] font-medium">
+                      Recommendation: <span className="font-normal text-[#334155]">{tier.recommended_action}</span>
                     </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </div>
-
-        {/* Right Side (70%): Empty Section */}
-        <div className="lg:col-span-7 rounded-2xl p-8 bg-white border border-[#E2E8F0] shadow-[0_2px_8px_rgba(0,41,145,0.04)] min-h-[380px] flex flex-col items-center justify-center text-center">
-          <div className="w-12 h-12 rounded-2xl bg-[#F5F7FA] border border-[#CBD5E1]/60 flex items-center justify-center text-[#94A3B8] mb-3">
-            <Sparkles className="w-5 h-5 text-[#008CFF]" />
-          </div>
-          <h4 className="text-base font-semibold text-[#000000]">Scenario Planning &amp; Custom Modeling</h4>
-          <p className="text-xs text-[#4A5568] max-w-md mt-1 leading-relaxed">
-            Reserved section for future predictive metrics, scenario simulations, and merchant-defined runway models.
-          </p>
-        </div>
-
       </div>
     </div>
   );

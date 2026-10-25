@@ -62,23 +62,15 @@ export function Header() {
         <button
           aria-label="Account Menu"
           onClick={() => setDropdownOpen((prev) => !prev)}
-          className={`relative group rounded-2xl bg-white hover:bg-[#F5F7FA] border border-[#E2E8F0] hover:border-[#002991]/40 shadow-[0_2px_8px_rgba(0,41,145,0.04)] hover:shadow-[0_4px_16px_rgba(0,140,255,0.12)] transition-all duration-300 active:scale-95 cursor-pointer ${
-            isLarge ? "p-1.5" : "p-1"
-          }`}
+          className={`relative group p-2 text-[#4A5568] hover:text-[#002991] transition-all duration-200 active:scale-95 cursor-pointer flex items-center justify-center`}
           id="accountBtn"
           title="Account Menu"
         >
-          <div
-            className={`rounded-xl bg-[#F5F7FA] group-hover:bg-white flex items-center justify-center relative overflow-hidden transition-all duration-300 ${
-              isLarge ? "w-12 h-12" : "w-10 h-10"
-            }`}
-          >
-            <User className={`${isLarge ? "h-6 w-6" : "h-5 w-5"} text-[#000000] group-hover:text-[#002991] transition-colors duration-200`} />
-          </div>
+          <User className={`${isLarge ? "h-6 w-6" : "h-5 w-5"} text-[#000000] group-hover:text-[#002991] transition-colors duration-200`} />
           {/* Bright Blue Status Dot */}
           <span
             className={`absolute rounded-full bg-[#008CFF] ring-2 ring-white shadow-[0_0_8px_rgba(0,140,255,0.55)] ${
-              isLarge ? "top-1.5 right-1.5 w-3 h-3" : "top-1 right-1 w-2.5 h-2.5"
+              isLarge ? "top-1 right-1 w-2.5 h-2.5" : "top-1 right-1 w-2 h-2"
             }`}
           ></span>
         </button>
@@ -141,12 +133,10 @@ export function Header() {
         <Link
           href="/"
           aria-label="Return to Home"
-          className="relative group p-1 rounded-2xl bg-white hover:bg-[#F5F7FA] border border-[#E2E8F0] hover:border-[#002991]/40 shadow-[0_2px_8px_rgba(0,41,145,0.04)] transition-all duration-300 active:scale-95 cursor-pointer"
+          className="relative group p-2 text-[#4A5568] hover:text-[#002991] transition-all duration-200 active:scale-95 cursor-pointer flex items-center justify-center"
           title="Return to Home"
         >
-          <div className="w-10 h-10 rounded-xl bg-[#F5F7FA] group-hover:bg-white flex items-center justify-center relative overflow-hidden text-[#000000] group-hover:text-[#002991] transition-all duration-300">
-            <Home className="h-5 w-5 text-[#000000] group-hover:text-[#002991] transition-colors duration-200" />
-          </div>
+          <Home className="h-5 w-5 text-[#000000] group-hover:text-[#002991] transition-colors duration-200" />
         </Link>
 
         {/* navigation bar*/}

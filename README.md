@@ -15,9 +15,8 @@ Uno integrates **PayPal APIs** with **Google Gemini 2.5 Flash**, **Jev Routing**
 │         OBSERVE          │           ACT            │             PREDICT              │
 │  • Account Discovery     │  • 1-Click Reminders     │  • 30/90-Day Cash Runway         │
 │  • Settlement Ledger     │  • Dynamic Invoicing     │  • Subscriber Churn Risk         │
-│  • Executive Briefing    │  • Draft Publishing      │  • Tier Growth Forecast          │
-│  • Audio Voice Briefing  │  • Autonomous Actions    │  • MRR Expansion Rate            │
-│  • Financial Glossary    │  • LLM Follow-Ups        │                                  │
+│  • Business Overview     │  • Draft Publishing      │  • Tier Growth Forecast          │
+│  • Financial Glossary    │  • Autonomous Actions    │  • MRR Expansion Rate            │
 └──────────────────────────┴──────────────────────────┴──────────────────────────────────┘
 ```
 
@@ -25,7 +24,7 @@ Uno integrates **PayPal APIs** with **Google Gemini 2.5 Flash**, **Jev Routing**
 - **Multi-API Account Discovery**: Automatically queries Subscriptions (`/v1/billing/plans`), Invoicing (`/v2/invoicing/invoices`), Disputes (`/v1/customer/disputes`), and Reporting (`/v1/reporting/transactions`) to construct a live operating profile upon credential connection.
 - **Morning Executive Briefing**: Daily visual summary and Text-to-Speech (TTS) audio narration covering gross volume, month-over-month growth, recurring MRR, and dispute health.
 - **Settlement Ledger (AG Grid)**: Real-time table rendering multi-status customer transactions with 1-click live synchronization and inline payment reminder triggers.
-- **Business & Financial Glossary**: 70:30 workspace hosting an interactive reference glossary with category filters and accordion dropdowns for key financial formulas, benchmarks, and definitions (MRR, ARR, TTM, Gross/Operating Margins, DSO, Runway, NDR, and Churn).
+- **Business & Financial Glossary**: An interactive reference glossary with category filters for key financial formulas, benchmarks, and definitions (MRR, ARR, TTM, Gross/Operating Margins, DSO, Runway, NDR, and Churn).
 
 ### 2. Act: Autonomous Agent Warren
 - **Conversational Invoicing**: Generates and registers official PayPal invoices from natural language prompts (*"Bill Maya Lin $340 for Enterprise Integration"*) via PayPal Invoicing API v2.
@@ -33,7 +32,7 @@ Uno integrates **PayPal APIs** with **Google Gemini 2.5 Flash**, **Jev Routing**
 - **Dynamic Chart Synthesis**: Renders interactive AG Charts directly in the conversation stream based on live ledger evidence.
 - **LLM-Grounded Follow-Ups**: Dynamically synthesizes next-step actions referencing real debtor accounts, outstanding balances, and plan tiers using Gemini 2.5 Flash.
 
-### 3. Predict: 90-Day Runway & Subscription Health
+### 3. Predict: 90-Day Runway & Subscription
 - **Revenue & MRR Horizon (AG Charts)**: Synthesizes historical invoice velocity with recurring subscription run-rates into a forward 90-day predictive trajectory.
 - **Forward Metric Projections**: Dedicated runway models tracking 30-day forward cash, 90-day forecast, and MRR expansion rate.
 - **Subscription Retention & Churn**: Full-width health monitor evaluating churn probability, exposed MRR, specific risk drivers (e.g. soft card declines), and concrete recovery actions across all active billing tiers.
@@ -134,10 +133,10 @@ npm run dev -- -p 3000
 
 ---
 
-## Testing Instructions for Judges
+## Test Instructions
 
 ### 1. Seed Real Sandbox Data
-Populate your PayPal Sandbox with 4 billing plans and 70+ invoices across 13 territories:
+Populate your PayPal Sandbox with dummy data:
 ```bash
 # Via cURL:
 curl -X POST http://localhost:8000/api/paypal/seed
@@ -146,13 +145,13 @@ curl -X POST http://localhost:8000/api/paypal/seed
 python scripts/seed_sandbox.py
 ```
 
-### 2. Verify Core Flows
+### 2. Core Flows
 - **Quick View (`/basic-charts`)**:
-  - Review the **Morning Executive Briefing** card and click **Play Audio Briefing** to hear the voice narration.
+  - Review the **Business Overview** card.
   - Scroll down to the **Recent Settlement Ledger (AG Grid)** and click **Refresh** to trigger live synchronization with PayPal Sandbox.
 - **Agent Warren (`/chat`)**:
   - Note the **70:30 Split Interface**: chat messages scroll independently while the right-side **Business & Financial Terms Glossary** remains accessible.
-  - Explore the glossary categories (*Revenue*, *Margins*, *Cash Flow*, *Retention*, *Risk*) and expand dropdowns (e.g. MRR, Operating Margin, TTM) to inspect formulas and benchmarks.
+  - Explore the glossary categories (*Revenue*, *Margins*, *Cash Flow*, *Retention*, *Risk*) and expand dropdowns to inspect formulas and benchmarks.
   - Ask: *"What is the status of my invoices and who has overdue payments?"* — Warren lists real outstanding debtors with balance breakdowns.
   - Click any dynamic 1-click follow-up button (e.g. *"Remind Amish Kakka ($230.00 SENT)"*) to dispatch a live reminder via `POST /v2/invoicing/invoices/{id}/remind`.
   - Ask: *"Bill Maya Lin $340 for Enterprise Integration"* to create and send a live PayPal invoice via `/v2/invoicing/invoices`.

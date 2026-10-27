@@ -11,7 +11,7 @@ import {
 import { AGChartWrapper } from "@/components/charts/AGChartWrapper";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { GlossarySidebar } from "@/components/chat/GlossarySidebar";
-import { NeuralNetworkIcon } from "@/components/icons/NeuralNetworkIcon";
+import { Warren } from "@/components/icons/Warren";
 import { 
   User, 
   Send, 
@@ -175,9 +175,7 @@ function ChatContent() {
               >
                 {/* Assistant Avatar */}
                 {msg.sender === "assistant" && (
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#E5F3FF] border border-[#008CFF]/30 text-[#002991] mt-1 shadow-xs">
-                    <NeuralNetworkIcon className="h-4 w-4" />
-                  </div>
+                  <Warren className="w-[30px] h-[30px] shrink-0 text-[#002991] mt-1" />
                 )}
 
                 {/* Bubble */}
@@ -284,18 +282,14 @@ function ChatContent() {
 
                 {/* User Avatar */}
                 {msg.sender === "user" && (
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#F5F7FA] border border-[#E2E8F0] text-[#4A5568] mt-1">
-                    <User className="h-4 w-4" />
-                  </div>
+                  <User className="w-[30px] h-[30px] shrink-0 text-[#4A5568] mt-1" />
                 )}
               </div>
             ))}
 
             {loading && (
               <div className="flex gap-3.5 justify-start items-center">
-                <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#E5F3FF] border border-[#008CFF]/30 text-[#002991]">
-                  <NeuralNetworkIcon className="h-4 w-4 animate-pulse" />
-                </div>
+                <Warren className="w-[30px] h-[30px] shrink-0 text-[#002991] animate-pulse" />
                 <div className="rounded-2xl bg-white border border-[#E2E8F0] px-4 py-3 text-xs text-[#4A5568] flex items-center gap-2 shadow-xs">
                   <span className="flex h-2 w-2 rounded-full bg-[#008CFF] animate-ping"></span>
                   <span>Agent Warren is analyzing PayPal records...</span>

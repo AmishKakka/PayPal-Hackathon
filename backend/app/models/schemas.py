@@ -109,5 +109,4 @@ class ExecutiveBriefing(BaseModel):
     summary: str
     highlights: List[BriefingHighlight]
     action_items: List[str]
-    audio_script: str
     

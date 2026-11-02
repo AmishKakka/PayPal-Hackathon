@@ -167,7 +167,19 @@ export default function OutlookPage() {
               </div>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div
+              className={`grid gap-4 ${
+                (forecast?.at_risk_tiers?.length ?? 0) <= 1
+                  ? "grid-cols-1"
+                  : forecast.at_risk_tiers.length === 2
+                    ? "grid-cols-1 md:grid-cols-2"
+                    : forecast.at_risk_tiers.length === 3
+                      ? "grid-cols-1 md:grid-cols-3"
+                      : forecast.at_risk_tiers.length === 4
+                        ? "grid-cols-1 md:grid-cols-2 lg:grid-cols-4"
+                        : "grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+              }`}
+            >
               {forecast.at_risk_tiers.map((tier) => {
                 const isHighRisk = tier.churn_probability > 0.2;
 

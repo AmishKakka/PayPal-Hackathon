@@ -22,7 +22,7 @@ Uno integrates **PayPal APIs** with **Google Gemini 2.5 Flash**, **Jev Routing**
 
 ### 1. Observe: Live Telemetry & Executive Briefings
 - **Multi-API Account Discovery**: Automatically queries Subscriptions (`/v1/billing/plans`), Invoicing (`/v2/invoicing/invoices`), Disputes (`/v1/customer/disputes`), and Reporting (`/v1/reporting/transactions`) to construct a live operating profile upon credential connection.
-- **Morning Executive Briefing**: Daily visual summary and Text-to-Speech (TTS) audio narration covering gross volume, month-over-month growth, recurring MRR, and dispute health.
+- **Morning Executive Briefing**: Daily visual summary covering gross volume, month-over-month growth, recurring MRR, and dispute health.
 - **Settlement Ledger (AG Grid)**: Real-time table rendering multi-status customer transactions with 1-click live synchronization and inline payment reminder triggers.
 - **Business & Financial Glossary**: An interactive reference glossary with category filters for key financial formulas, benchmarks, and definitions (MRR, ARR, TTM, Gross/Operating Margins, DSO, Runway, NDR, and Churn).
 
@@ -74,7 +74,7 @@ Uno integrates **PayPal APIs** with **Google Gemini 2.5 Flash**, **Jev Routing**
 | **Invoice Creation** | `POST /v2/invoicing/invoices` | Creates and delivers new invoices from conversational requests |
 | **Draft Dispatch** | `POST /v2/invoicing/invoices/{id}/send` | Publishes draft invoices and sends payment links |
 | **Churn Risk Telemetry** | `GET /v1/billing/plans` + Invoice cross-matching | Computes renewal churn exposure per plan tier |
-| **Sandbox Seeder** | `POST /v2/invoicing/invoices`<br>`POST /v2/invoicing/invoices/{id}/payments` | Provisions 70+ invoices across 4 subscription tiers and 13 countries |
+| **Sandbox Seeder** | `POST /v2/invoicing/invoices`<br>`POST /v2/invoicing/invoices/{id}/payments` | Provisions 70+ invoices across 3 subscription tiers and 13 countries |
 
 ---
 

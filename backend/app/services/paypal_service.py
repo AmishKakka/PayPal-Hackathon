@@ -266,10 +266,11 @@ class PayPalService:
             try:
                 res_str = pt.list_subscription_plans(
                     self.toolkit_client, 
-                    {"page_size": 20, "page": 1, "total_required": True}
+                    {"page_size": 20, "page": 1, "total_required": True, "status": "ACTIVE"}
                 )
                 res_data = json.loads(res_str) if isinstance(res_str, str) else res_str
-                plans = res_data.get("plans", [])
+                raw_plans = res_data.get("plans", [])
+                plans = [p for p in raw_plans if p.get("status", "ACTIVE").upper() == "ACTIVE"]
 
                 if enrich_details and plans:
                     # Enrich plans with billing_cycles from show_subscription_plan_details
@@ -301,11 +302,12 @@ class PayPalService:
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 res = await client.get(
-                    f"{self.base_url}/v1/billing/plans?page_size=20",
+                    f"{self.base_url}/v1/billing/plans?page_size=20&status=ACTIVE",
                     headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
                 )
                 if res.status_code == 200:
-                    return res.json().get("plans", [])
+                    raw_plans = res.json().get("plans", [])
+                    return [p for p in raw_plans if p.get("status", "ACTIVE").upper() == "ACTIVE"]
         except Exception as e:
             print(f"[PayPalService] Error fetching plans via HTTP: {e}")
         return []
@@ -1186,23 +1188,13 @@ class PayPalService:
             action_items.append(f"Review churn vulnerability tips for {kpis.at_risk_tiers_count} monitored subscription tiers.")
         action_items.append(f"Historical telemetry projects a forward 90-day revenue pipeline of ${forecast.forecast_90d:,.2f}.")
 
-        audio_script = (
-            f"{greeting}. Here is your PayPal Executive Briefing for {date_str}. "
-            f"Your business has settled {vol_val} in gross volume, reflecting {vol_change} growth. "
-            f"Recurring monthly revenue is {mrr_val} across {kpis.active_subscriptions} active subscribers. "
-            f"There are {len(unpaid_invs) + len(overdue_invs)} pending invoices totaling {pending_val}. "
-            f"Seller protection remains clean with zero open disputes. "
-            f"Your ninety-day forward revenue runway is projected at ${forecast.forecast_90d:,.2f}."
-        )
-
         return {
             "greeting": greeting,
             "date": date_str,
             "headline": headline,
             "summary": summary,
             "highlights": highlights,
-            "action_items": action_items,
-            "audio_script": audio_script
+            "action_items": action_items
         }
 
 paypal_service = PayPalService()

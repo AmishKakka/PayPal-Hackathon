@@ -212,7 +212,6 @@ export interface ExecutiveBriefing {
   summary: string;
   highlights: BriefingHighlight[];
   action_items: string[];
-  audio_script: string;
 }
 
 export async function fetchExecutiveBriefing(): Promise<ExecutiveBriefing> {

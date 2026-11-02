@@ -393,14 +393,12 @@ class WarrenOrchestrator:
                 inv_num = res.get("invoice_number")
                 inv_status = res.get("status")
                 raw_evidence = (
-                    f"⚡ AGENTIC ACTION EXECUTED: Created & Dispatched Live PayPal Invoice\n"
-                    f"- Execution Result: Successfully generated live PayPal invoice via PayPal Invoicing API v2 (`/v2/invoicing/invoices`)\n"
-                    f"- Invoice Number: **{inv_num}** (ID: `{inv_id}`)\n"
-                    f"- Recipient: **{c_name}** ({c_email})\n"
-                    f"- Line Item: **{c_item}**\n"
-                    f"- Total Amount: **${c_amount:.2f} USD**\n"
-                    f"- Live Status: **{inv_status}** ({'Delivered official payment notification to recipient' if not is_draft_mode else 'Saved in DRAFT mode'})\n"
-                    f"- Proactive Next Step: The recipient will receive official PayPal payment instructions directly."
+                    f"⚡ **Invoice Created & Delivered**\n\n"
+                    f"- **Invoice Number**: **{inv_num}** (`{inv_id}`)\n"
+                    f"- **Recipient**: **{c_name}** ({c_email})\n"
+                    f"- **Line Item**: **{c_item}**\n"
+                    f"- **Amount**: **${c_amount:,.2f} USD**\n"
+                    f"- **Status**: **{inv_status}** ({'Delivered to customer' if not is_draft_mode else 'Saved as Draft'})\n"
                 )
                 action_trace_item = f"Action Executed: Created & Dispatched Invoice {inv_num} (${c_amount:.2f})"
             else:
@@ -469,33 +467,36 @@ class WarrenOrchestrator:
             success_records = [r for r in reminded_records if r["success"]]
             success_sum = sum(r["amount"] for r in success_records)
 
-            items_text = "\n".join([
-                f"  • **{r['customer']}**: **${r['amount']:.2f}** (Invoice ID: `{r['id']}`) — Status: **Reminded Successfully via PayPal Invoicing API v2**"
+            table_header = "| Customer | Amount | Invoice ID | Status |\n| :--- | :--- | :--- | :--- |"
+            table_rows = [
+                f"| **{r['customer']}** | **${r['amount']:,.2f}** | `{r['id']}` | Sent |"
                 for r in success_records
-            ]) if success_records else "  • Target invoices processed."
+            ]
+            items_table = f"{table_header}\n" + "\n".join(table_rows) if success_records else "No eligible invoices processed."
 
             draft_note = ""
             if draft_invoices:
-                draft_lines = []
+                draft_rows = []
                 for d in draft_invoices:
                     recips = d.get("primary_recipients", [])
                     c_name = recips[0].get("billing_info", {}).get("name", {}).get("full_name", "Customer") if recips else "Customer"
                     amt = float(d.get("amount", {}).get("value", 0))
-                    draft_lines.append(f"  • **{c_name}**: **${amt:.2f}** (Invoice ID: `{d.get('id')}`) — Status: **DRAFT** (Requires publish before reminder can be sent)")
-                draft_note = f"\nDraft Accounts (Require Publish before Reminder):\n" + "\n".join(draft_lines)
+                    draft_rows.append(f"| {c_name} | ${amt:,.2f} | `{d.get('id')}` | Draft (Publish required) |")
+                draft_note = f"\n\n#### Draft Invoices\n| Customer | Amount | Invoice ID | Status |\n| :--- | :--- | :--- | :--- |\n" + "\n".join(draft_rows)
 
             raw_evidence = (
-                f"⚡ AGENTIC ACTION EXECUTED: Dispatched PayPal Invoicing Reminders\n"
-                f"- Execution Result: Successfully sent automated reminders to {len(success_records)} account(s) via live PayPal Invoicing API v2 (`/v2/invoicing/invoices/{{id}}/remind`)\n"
-                f"- Total Cash Flow Accelerated into Receivables: **${success_sum:.2f}**\n"
-                f"Delivered Reminders Breakdown:\n{items_text}\n"
+                f"⚡ **Invoice Reminders Dispatched**\n\n"
+                f"- **Accounts Reminded**: {len(success_records)} account(s)\n"
+                f"- **Total Accelerated**: **${success_sum:,.2f}**\n\n"
+                f"#### Delivered Reminders\n"
+                f"{items_table}"
                 f"{draft_note}\n\n"
-                f"Total Invoicing Status in PayPal:\n"
-                f"- Paid: {len(paid)} settled invoices (${paid_sum:.2f})\n"
-                f"- Pending/Unpaid: {len(unpaid)} invoices (${unpaid_sum:.2f})\n"
-                f"- Overdue: {len(overdue)} invoices (${overdue_sum:.2f})"
+                f"#### Invoicing Overview\n"
+                f"- **Settled (Paid)**: {len(paid)} invoices (${paid_sum:,.2f})\n"
+                f"- **Pending**: {len(unpaid)} invoices (${unpaid_sum:,.2f})\n"
+                f"- **Overdue**: {len(overdue)} invoices (${overdue_sum:,.2f})"
             )
-            action_trace_item = f"Action Executed: Dispatched {len(success_records)} PayPal invoice reminders (${success_sum:.2f})"
+            action_trace_item = f"Action Executed: Dispatched {len(success_records)} PayPal invoice reminders (${success_sum:,.2f})"
 
         elif is_draft_action:
             draft_invoices = [inv for inv in unpaid if inv.get("status") == "DRAFT"]
@@ -536,13 +537,16 @@ class WarrenOrchestrator:
                 published_records.append({"id": inv_id, "customer": c_name, "amount": amt, "success": success})
 
             success_pubs = [p for p in published_records if p["success"]]
-            lines = "\n".join([
-                f"  • **{p['customer']}**: **${p['amount']:.2f}** (Invoice ID: `{p['id']}`) — Status: **Published & Delivered to Customer**"
+            table_header = "| Customer | Amount | Invoice ID | Status |\n| :--- | :--- | :--- | :--- |"
+            table_rows = [
+                f"| **{p['customer']}** | **${p['amount']:,.2f}** | `{p['id']}` | Published & Sent |"
                 for p in success_pubs
-            ]) if success_pubs else "  • No draft invoices were published."
+            ]
+            lines = f"{table_header}\n" + "\n".join(table_rows) if success_pubs else "No draft invoices were published."
             raw_evidence = (
-                f"⚡ AGENTIC ACTION EXECUTED: Published Draft PayPal Invoices\n"
-                f"- Execution Result: Successfully published and delivered {len(success_pubs)} draft invoice(s) via PayPal Invoicing API v2 (`/v2/invoicing/invoices/{{id}}/send`)\n"
+                f"⚡ **Draft Invoices Published & Sent**\n\n"
+                f"- **Invoices Delivered**: {len(success_pubs)}\n\n"
+                f"#### Published Invoices\n"
                 f"{lines}"
             )
             if success_pubs:
@@ -585,7 +589,7 @@ class WarrenOrchestrator:
 
         if not disputes:
             raw_evidence = (
-                "PayPal Customer Disputes Status (from live /v1/customer/disputes):\n"
+                "PayPal Customer Disputes Status:\n"
                 "- Active Disputes: 0 open claims.\n"
                 f"- Dispute Rate: 0.00% across {len(txns)} transactions (Safely below PayPal's 0.5% threshold).\n"
                 "- Account Health: Clean rating, zero chargeback exposure, funds clear without holds."
@@ -624,9 +628,7 @@ class WarrenOrchestrator:
             reverse=True
         )
 
-        evidence = "\n\n".join(
-            f"### {s['agent']}\n{s['raw']}" for s in sections
-        )
+        evidence = "\n\n".join(s["raw"] for s in sections)
  
         # Retrieve dynamic merchant operating profile and live business context
         merchant_context = await paypal_service.get_merchant_context()
@@ -710,12 +712,14 @@ class WarrenOrchestrator:
             try:
                 system_prompt = (
                     "You are WARREN, an intelligent autonomous business copilot and execution agent for PayPal merchants.\n"
-                    "Your responses MUST be formatted in rich GitHub-flavored Markdown:\n"
+                    "Your responses MUST be formatted in clean, executive-ready GitHub-flavored Markdown:\n"
                     "- Use clear headings (`### `).\n"
-                    "- Use bullet points with bold figures.\n"
+                    "- FORMATTING & REPETITION RULE: Be discrete and concise. For multi-account actions (like invoice reminders or draft publishes), format the list of customers into a clean Markdown table (`| Customer | Amount | Invoice ID | Status |`).\n"
+                    "- NEVER repeat technical internal API routes or endpoints (e.g., do NOT output raw URL paths like `/v2/invoicing/...` or `/v1/...`).\n"
+                    "- NEVER repeat the same phrase across multiple lines (e.g. do NOT say 'via PayPal Invoicing API v2' on every row).\n"
                     "- STRICT REQUIREMENT: Base your answers ONLY on the live PayPal evidence and merchant profile provided below.\n"
-                    "- CRITICAL AGENTIC ACTION RULE: If the live evidence shows that an agentic action was executed (e.g. 'AGENTIC ACTION EXECUTED: Dispatched PayPal Invoicing Reminders' or 'AGENTIC ACTION EXECUTED: Created & Dispatched Live PayPal Invoice'), celebrate that the action has been completed! State clearly that the action was successfully executed via the live PayPal Invoicing API v2. List specific customer names, amounts, invoice IDs, and delivery statuses. NEVER say 'I can help you send reminders' or 'I will create an invoice' when the action has already been performed!\n"
-                    "- If draft invoices exist that could not be reminded, explain why (PayPal requires draft invoices to be published before reminders can be issued).\n"
+                    "- AGENTIC ACTION RULE: If the live evidence shows that an action was executed (e.g. reminders sent, invoice created, drafts published), confirm that the action has been completed directly and professionally with the total count and dollar amount. NEVER say 'I can help you send reminders' or 'I will create an invoice' when the action has already been performed!\n"
+                    "- If draft invoices exist that could not be reminded, briefly explain that PayPal requires draft invoices to be published before reminders can be issued.\n"
                     "- NEVER fabricate or hallucinate numbers, names, or metrics not present in the live evidence.\n"
                     "- If the merchant's PayPal account has 0 records for a category (e.g. 0 disputes, 0 subscriptions), state that fact clearly.\n\n"
                     f"{merchant_context}\n\n"
@@ -777,7 +781,7 @@ class WarrenOrchestrator:
             except Exception as e:
                 print(f"[WarrenOrchestrator] Gemini LLM synthesis error: {e}")
         if not final_markdown:
-            final_markdown = f"### Live PayPal Business Analysis\n\n{evidence}"
+            final_markdown = evidence
 
         # LLM did not provide structured follow-ups, dynamically derive them from live PayPal data
         if not follow_ups:

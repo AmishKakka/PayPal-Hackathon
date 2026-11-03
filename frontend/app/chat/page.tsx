@@ -77,8 +77,10 @@ function ChatContent() {
       const savedStr = localStorage.getItem("uno_custom_charts") || sessionStorage.getItem("uno_custom_charts");
       const saved: ChartConfig[] = savedStr ? JSON.parse(savedStr) : [];
       
-      const chartId = chart.id || `custom-pinned-${Date.now()}`;
-      const uniqueId = chartId.startsWith("pinned-") ? chartId : `pinned-${chartId}`;
+      const chartId = chart.id || `custom-${Date.now().toString(36)}`;
+      const uniqueId = chartId.startsWith("pinned-") 
+        ? `${chartId}-${Date.now().toString(36)}` 
+        : `pinned-${chartId}`;
       
       const chartToSave: ChartConfig = {
         ...chart,
@@ -86,14 +88,24 @@ function ChatContent() {
         title: chart.title
       };
 
-      const exists = saved.some(c => c.id === uniqueId || c.id === chart.id || (c.title === chartToSave.title && c.type === chartToSave.type));
+      // Sanitize and deduplicate existing array
+      const seen = new Set<string>();
+      const cleanSaved: ChartConfig[] = [];
+      for (const item of saved) {
+        if (item && item.id && !seen.has(item.id)) {
+          seen.add(item.id);
+          cleanSaved.push(item);
+        }
+      }
+
+      const exists = cleanSaved.some(c => c.id === uniqueId || c.id === chart.id || (c.title === chartToSave.title && c.type === chartToSave.type));
       if (!exists) {
-        saved.push(chartToSave);
-        localStorage.setItem("uno_custom_charts", JSON.stringify(saved));
-        sessionStorage.setItem("uno_custom_charts", JSON.stringify(saved));
+        cleanSaved.push(chartToSave);
+        localStorage.setItem("uno_custom_charts", JSON.stringify(cleanSaved));
+        sessionStorage.setItem("uno_custom_charts", JSON.stringify(cleanSaved));
         window.dispatchEvent(new Event("uno_charts_updated"));
       }
-      setPinnedIds(prev => [...prev, chart.id, uniqueId]);
+      setPinnedIds(prev => Array.from(new Set([...prev, chart.id, uniqueId])));
     } catch (e) {
       console.error("Failed to pin chart:", e);
     }

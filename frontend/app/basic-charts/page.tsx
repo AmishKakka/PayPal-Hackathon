@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { 
   fetchTransactions, 
   fetchStandardCharts,
@@ -22,6 +22,20 @@ const SUGGESTED_PROMPTS = [
   "Invoice payment status breakdown (paid vs pending vs overdue)",
   "Revenue breakdown by subscription plan tier"
 ];
+
+const dedupeCharts = (charts: ChartConfig[]): ChartConfig[] => {
+  const seen = new Set<string>();
+  const result: ChartConfig[] = [];
+  for (const c of charts) {
+    if (!c) continue;
+    const id = c.id || `custom-${Math.random().toString(36).slice(2, 9)}`;
+    if (!seen.has(id)) {
+      seen.add(id);
+      result.push({ ...c, id });
+    }
+  }
+  return result;
+};
 
 export default function BasicChartsPage() {
   const { profile } = useBusinessProfile();
@@ -63,7 +77,11 @@ export default function BasicChartsPage() {
         if (saved) {
           const parsed = JSON.parse(saved);
           if (Array.isArray(parsed)) {
-            setCustomCharts(parsed);
+            const deduped = dedupeCharts(parsed);
+            setCustomCharts(deduped);
+            // Write back sanitized list to prevent corrupted/duplicate keys from persisting
+            localStorage.setItem("uno_custom_charts", JSON.stringify(deduped));
+            sessionStorage.setItem("uno_custom_charts", JSON.stringify(deduped));
           }
         }
       } catch (e) {
@@ -105,7 +123,7 @@ export default function BasicChartsPage() {
               const otherCharts = chartsRes.filter(c => c.id !== "regional-distribution");
               if (regChart) orderedCharts = [regChart, ...otherCharts];
             }
-            setStandardCharts(orderedCharts);
+            setStandardCharts(dedupeCharts(orderedCharts));
           }
         })
         .catch(e => console.error("Error loading standard charts:", e));
@@ -129,8 +147,14 @@ export default function BasicChartsPage() {
 
     try {
       const newChart = await generateCustomChart(chartPrompt.trim());
+      // Guarantee distinct unique id for React keys
+      const guaranteedId = newChart.id && !newChart.id.includes("<")
+        ? `${newChart.id}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+        : `custom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+      const uniqueNewChart: ChartConfig = { ...newChart, id: guaranteedId };
+
       setCustomCharts(prev => {
-        const updated = [...prev, newChart];
+        const updated = dedupeCharts([...prev.filter(c => c.id !== uniqueNewChart.id), uniqueNewChart]);
         try {
           localStorage.setItem("uno_custom_charts", JSON.stringify(updated));
           sessionStorage.setItem("uno_custom_charts", JSON.stringify(updated));
@@ -161,7 +185,19 @@ export default function BasicChartsPage() {
     });
   };
 
-  const allCharts = [...standardCharts, ...customCharts];
+  const allCharts = useMemo(() => {
+    const seen = new Set<string>();
+    const result: ChartConfig[] = [];
+    for (const chart of [...standardCharts, ...customCharts]) {
+      if (chart && chart.id) {
+        if (!seen.has(chart.id)) {
+          seen.add(chart.id);
+          result.push(chart);
+        }
+      }
+    }
+    return result;
+  }, [standardCharts, customCharts]);
 
   return (
     <div className="w-full max-w-[1920px] mx-auto px-4 sm:px-6 lg:px-8 py-3.5 space-y-6">
@@ -172,11 +208,11 @@ export default function BasicChartsPage() {
         {/* Left Section (70%): Only Charts, 2 Charts in a Row */}
         <div className="lg:col-span-7 h-full overflow-y-auto pr-2 pb-4 scrollbar-thin">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5 pb-2">
-            {allCharts.map((chart) => {
+            {allCharts.map((chart, idx) => {
               const isCustom = customCharts.some(c => c.id === chart.id);
               return (
                 <div 
-                  key={chart.id} 
+                  key={chart.id ? `${chart.id}-${idx}` : `chart-idx-${idx}`} 
                   className="rounded-2xl p-5 bg-white border border-[#E2E8F0] shadow-[0_2px_8px_rgba(0,41,145,0.04)] hover:shadow-[0_12px_24px_-6px_rgba(0,41,145,0.08)] hover:border-[#002991]/30 transition-all relative group flex flex-col justify-between"
                 >
                   <div className="mb-3 flex items-start justify-between gap-2">

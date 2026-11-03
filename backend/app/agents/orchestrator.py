@@ -2,6 +2,7 @@ import os
 import json
 import re
 import time
+import uuid
 import asyncio
 import operator
 from typing import Dict, Any, List, Optional, TypedDict, Annotated
@@ -1053,12 +1054,17 @@ class WarrenOrchestrator:
                     for ds in parsed["datasets"]:
                         if "name" in ds and "label" not in ds:
                             ds["label"] = ds.pop("name")
+                parsed_id = str(parsed.get("id") or "")
+                if not parsed_id or "<" in parsed_id:
+                    parsed["id"] = f"custom-{int(time.time())}-{uuid.uuid4().hex[:6]}"
+                else:
+                    parsed["id"] = f"{parsed_id}-{uuid.uuid4().hex[:4]}"
                 return ChartConfig(**parsed)
             except Exception as e:
                 print(f"[WarrenOrchestrator] Error during LLM chart generation, using dynamic fallback: {e}")
 
         # Deterministic live fallback strictly respecting user's requested chart type
-        slug = f"custom-{int(time.time())}"
+        slug = f"custom-{int(time.time())}-{uuid.uuid4().hex[:6]}"
 
         if any(w in q for w in ["region", "territor", "country", "where", "geographic", "geo"]):
             sorted_reg = sorted(regional_rev.items(), key=lambda x: x[1], reverse=True)

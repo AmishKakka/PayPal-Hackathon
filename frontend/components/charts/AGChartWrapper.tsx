@@ -46,7 +46,7 @@ export function AGChartWrapper({ config, height = 300 }: AGChartWrapperProps) {
             legendItemKey: "label",
             sectorLabelKey: "value",
             outerRadiusRatio: 0.90,
-            innerRadiusRatio: isDonut ? 0.52 : 0,
+            ...(isDonut ? { innerRadiusRatio: 0.52 } : {}),
             fills: paypalColors,
             strokes: ["#ffffff"],
             strokeWidth: 2,

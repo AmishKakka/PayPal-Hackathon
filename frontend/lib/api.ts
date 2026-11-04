@@ -1,4 +1,22 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+export function getApiBase(): string {
+  // 1. Explicit override via public environment variable
+  if (process.env.NEXT_PUBLIC_API_URL) {
+    return process.env.NEXT_PUBLIC_API_URL;
+  }
+  // 2. Client-side browser runtime
+  if (typeof window !== "undefined") {
+    // If standalone local dev on port 3000 without reverse proxy
+    if (window.location.hostname === "localhost" && window.location.port === "3000") {
+      return "http://localhost:8000";
+    }
+    // On Vercel (or reverse proxy), relative "" automatically routes via /api/(.*) rewrite
+    return "";
+  }
+  // 3. Server-side runtime (functions / SSR): use Vercel service binding BACKEND_URL
+  return process.env.BACKEND_URL || "http://localhost:8000";
+}
+
+const API_BASE = getApiBase();
 
 export interface ChartDataset {
   label: string;

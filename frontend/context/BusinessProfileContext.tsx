@@ -5,7 +5,8 @@ import {
   BusinessProfile, 
   fetchBusinessProfile, 
   probeBusinessAccount, 
-  confirmBusinessProfile 
+  confirmBusinessProfile,
+  getApiBase
 } from "@/lib/api";
 
 export type ModalStep = "credentials" | "probing" | "confirmation" | "customizing";
@@ -102,7 +103,7 @@ export function BusinessProfileProvider({ children }: { children: ReactNode }) {
 
     try {
       // 1. Authenticate with backend
-      const res = await fetch("http://localhost:8000/api/paypal/connect", {
+      const res = await fetch(`${getApiBase()}/api/paypal/connect`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -130,7 +131,7 @@ export function BusinessProfileProvider({ children }: { children: ReactNode }) {
       setModalStep("confirmation");
       return true;
     } catch {
-      setStatusMsg({ type: "error", text: "Could not reach backend API server at http://localhost:8000" });
+      setStatusMsg({ type: "error", text: "Could not reach backend API server." });
       setModalStep("credentials");
       return false;
     } finally {
